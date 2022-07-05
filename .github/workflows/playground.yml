@@ -45,7 +45,6 @@ jobs:
           always() &&
           github.ref_name != 'main'
         run: |
-          echo "success() ${{ success() }}"
           echo "github.ref_name ${{ github.ref_name }}"
 
       # Runs a set of commands using the runners shell
@@ -77,11 +76,11 @@ jobs:
       - name: BAD
         if: failure()
         run: |
-          echo "success() ${{ success() }}"
+          echo "bad outcome"
 
       # Runs a set of commands using the runners shell
       - name: GOOD
         # alternative: ${{ github.ref == 'refs/heads/main' }}
         if: success()
         run: |
-          echo "success() ${{ success() }}"
+          echo "good outcome"
