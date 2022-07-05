@@ -81,11 +81,11 @@ jobs:
       - name: GOOD
         # alternative: ${{ github.ref == 'refs/heads/main' }}
         if: success()
-        continue-on-error: true
         run: |
           echo "good outcome"
 
       - name: crash
+        continue-on-error: true
         run: false
 
       - name: BAD
