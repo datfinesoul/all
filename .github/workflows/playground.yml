@@ -89,6 +89,6 @@ jobs:
         run: false
 
       - name: BAD
-        if: failure()
+        if: always()
         run: |
           echo "bad outcome"
