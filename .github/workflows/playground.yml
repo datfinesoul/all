@@ -6,7 +6,7 @@ name: CI
 on:
   # Triggers the workflow on push or pull request events but only for the "main" branch
   push:
-    branches: [ "main" ]
+    branches:
   pull_request:
     branches: [ "main" ]
 
@@ -30,7 +30,9 @@ jobs:
         run: echo Hello, world!
 
       # Runs a set of commands using the runners shell
-      - name: Run a multi-line script
+      - name: Run a multi-line script (only on main)
+        # alternative: ${{ github.ref == 'refs/heads/main' }}
+        if: ${{ github.ref_name == 'main' }}
         run: |
-          echo Add other actions to build,
-          echo test, and deploy your project.
+          echo "github.ref_name ${{ github.ref_name }}"
+          echo "env.GITHUB_REF_NAME ${{ env.GITHUB_REF_NAME }}"
