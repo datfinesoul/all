@@ -42,7 +42,6 @@ jobs:
         # https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#example-requiring-successful-dependent-jobs
         # https://docs.github.com/en/actions/learn-github-actions/expressions#status-check-functions
         if: |
-          always() &&
           github.ref_name != 'main'
         run: |
           echo "github.ref_name ${{ github.ref_name }}"
@@ -73,10 +72,10 @@ jobs:
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-      - name: BAD
+      - name: IGNORED
         if: failure()
         run: |
-          echo "bad outcome"
+          echo "ignored"
 
       # Runs a set of commands using the runners shell
       - name: GOOD
@@ -84,3 +83,11 @@ jobs:
         if: success()
         run: |
           echo "good outcome"
+
+      - name: crash
+        run: false
+
+      - name: BAD
+        if: failure()
+        run: |
+          echo "bad outcome"
