@@ -1,0 +1,11 @@
+{
+  "restartable": false,
+	"colours": true,
+  "watch": [
+		"app/**/*",
+    "index.js"
+	],
+  "stdin": false,
+  "verbose": false,
+	"quiet": false
+}
