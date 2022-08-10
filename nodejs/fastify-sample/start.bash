@@ -18,7 +18,7 @@ if [[ -z "${DEBUG:-}" ]]; then
 else
 	>&2 echo ":: debug"
 	npm install nodemon
-	./node_modules/.bin/nodemon src/index.js &
+	./node_modules/.bin/nodemon --config nodemon.json src/index.js &
 fi
 
 child_pid="$!"

@@ -33,7 +33,7 @@ shell:
 		"$(NAME)" \
 		"/bin/bash"
 
-run: build
+debug: build
 	docker run \
 		--rm \
 		--env-file .env \
@@ -43,7 +43,15 @@ run: build
 		--volume "$(shell pwd)/src:/app/src:ro" \
 		"$(LABEL)"
 
+run: build
+	docker run \
+		--rm \
+		--env-file .env \
+		--name "$(NAME)" \
+		--publish $(HOST_PORT):$(APP_PORT) \
+		"$(LABEL)"
+
 dive: build
 	dive "${LABEL}"
 
-.PHONY: main docker-start build shell run dive
+.PHONY: main docker-start build shell run dive debug

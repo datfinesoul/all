@@ -1,0 +1,13 @@
+{
+  "restartable": false,
+  "colours": true,
+  "watch": [
+    "src/**/*"
+  ],
+  "stdin": false,
+  "verbose": false,
+  "env": {
+    "NODE_ENV": "development"
+  },
+  "ext": "js,json"
+}
