@@ -1,4 +1,5 @@
 import Fastify from 'fastify'
+const crypto = await import('node:crypto')
 
 const fastify = Fastify({
   logger: true
@@ -27,6 +28,39 @@ process.on('SIGTERM', handle)
 
 fastify.route({
   method: 'GET',
+  // TODO: should there be slashes at the end of non-root urls?
+  url: '/diagnostic/',
+  handler: async (request, reply) => {
+    return { status: 'okay' }
+  }
+})
+
+// TODO: look into UV_THREADPOOL_SIZE.  default: 4
+
+fastify.route({
+  method: 'GET',
+  url: '/slow/',
+  handler: async (request, reply) => {
+    // NOTE: Move these two lines out of the method and compare
+    const salt = crypto.randomBytes(128).toString('base64');
+    const hash = crypto.pbkdf2Sync('myPassword', salt, 10000, 512, 'sha512')
+    return { done: 'at-last' }
+  }
+})
+
+fastify.route({
+  method: 'GET',
+  url: '/blocking/',
+  handler: async (request, reply) => {
+    const { email } = request.query
+    console.log(email)
+    ;/[a-z]+@[a-z]+([a-z\.]+\.)+[a-z]+/.test(email)
+    return { done: 'at-last' }
+  }
+})
+
+fastify.route({
+  method: 'GET',
   url: '/',
   schema: {
     // request needs to have a querystring with a `name` parameter
@@ -48,9 +82,10 @@ fastify.route({
     // E.g. check authentication
   },
   handler: async (request, reply) => {
-    return { helo: 'world' }
+    return { hello: 'world', but: 'not-this' }
   }
 })
+
 
 const start = async () => {
   try {
