@@ -14,7 +14,8 @@ docker-start:
 	# pause everything running in minikube
 	minikube pause
 	# setup docker support
-	eval $(minikube docker-env)
+	@>&2 echo ":: please run the following command:"
+	@>&2 echo -e '\neval $$(minikube docker-env)'
 
 build:
 	# https://www.docker.com/blog/introduction-to-heredocs-in-dockerfiles/
@@ -34,6 +35,7 @@ shell:
 		"/bin/bash"
 
 debug: build
+	touch .env
 	docker run \
 		--rm \
 		--env-file .env \
@@ -44,6 +46,7 @@ debug: build
 		"$(LABEL)"
 
 run: build
+	touch .env
 	docker run \
 		--rm \
 		--env-file .env \
