@@ -3,6 +3,8 @@ NAME:=fastify-sample
 LABEL:=$(NAME):latest
 APP_PORT:=8080
 HOST_PORT:=9000
+minikube start --container-runtime=docker --vm=true
+
 
 main:
 	echo $(LABEL)
@@ -10,7 +12,8 @@ main:
 
 # OSX alternative to docker desktop
 docker-start:
-	minikube start
+	#minikube start
+	minikube start --container-runtime=docker --vm=true
 	# pause everything running in minikube
 	minikube pause
 	# setup docker support
@@ -45,6 +48,24 @@ debug: build
 		--volume "$(shell pwd)/src:/app/src:ro" \
 		"$(LABEL)"
 
+osx-debug: build
+	touch .env
+	docker run \
+		--rm \
+		--env-file .env \
+		--env DEBUG=1 \
+		--name "$(NAME)" \
+		--publish $(HOST_PORT):$(APP_PORT) \
+		--volume "/fastify-sample-src:/app/src:ro" \
+		"$(LABEL)"
+
+osx-volume:
+	minikube mount ./src:/fastify-sample-src
+
+osx-ip:
+	# need this to connect to the container
+	minikube ip
+
 run: build
 	touch .env
 	docker run \
@@ -57,4 +78,4 @@ run: build
 dive: build
 	dive "${LABEL}"
 
-.PHONY: main docker-start build shell run dive debug
+.PHONY: main docker-start build shell run dive debug osx-debug osx-volume osx-ip

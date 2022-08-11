@@ -5,6 +5,10 @@ const fastify = Fastify({
   logger: true
 })
 
+const diagnostic = setInterval(() => {
+  console.log('... diagnostic')
+}, 1000)
+
 process.on('beforeExit', (code) => {
   console.log('Process beforeExit event with code: ', code);
 })
@@ -16,6 +20,7 @@ process.on('exit', (code) => {
 // Using a single function to handle multiple signals
 function handle(signal) {
   console.log({signal})
+  clearInterval(diagnostic)
   fastify.close().then(() => {
     console.log('successfully closed!')
   }, (err) => {

@@ -12,14 +12,16 @@ cleanup() {
 trap '>&2 echo ":: SIGINT:${child_pid}"; kill "${child_pid}"; wait "${child_pid}"; cleanup' SIGINT
 trap '>&2 echo ":: SIGTERM:${child_pid}"; kill "${child_pid}"; wait "${child_pid}"; cleanup' SIGTERM
 
+caddy start
+
 if [[ -z "${DEBUG:-}" ]]; then
 	>&2 echo ":: production"
 	node src/index.js &
 else
 	>&2 echo ":: debug"
 	npm install nodemon
-	./node_modules/.bin/nodemon --config nodemon.json src/index.js &
+	./node_modules/.bin/nodemon --config nodemon.json &
 fi
 
 child_pid="$!"
-wait "${child_pid}"
+wait
