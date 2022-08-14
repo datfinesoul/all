@@ -6,7 +6,7 @@ const fastify = Fastify({
 })
 
 const diagnostic = setInterval(() => {
-  console.log('... diagnostic')
+  console.log(`... ${process.hrtime()} diagnostic`)
 }, 1000)
 
 process.on('beforeExit', (code) => {
