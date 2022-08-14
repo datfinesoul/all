@@ -12,7 +12,7 @@ cleanup() {
 trap '>&2 echo ":: SIGINT:${child_pid}"; kill "${child_pid}"; wait "${child_pid}"; cleanup' SIGINT
 trap '>&2 echo ":: SIGTERM:${child_pid}"; kill "${child_pid}"; wait "${child_pid}"; cleanup' SIGTERM
 
-caddy start
+caddy run &
 
 if [[ -z "${DEBUG:-}" ]]; then
 	>&2 echo ":: production"
@@ -24,4 +24,5 @@ else
 fi
 
 child_pid="$!"
-wait
+# the -n option here says to wait until any process finishes
+wait -n

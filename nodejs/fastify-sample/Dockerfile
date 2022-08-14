@@ -13,6 +13,8 @@ apk add \
 	caddy \
 	bash \
 	curl
+apk del --purge
+rm -rf /tmp/*
 DOC
 
 ENV NODE_ENV production
@@ -24,6 +26,7 @@ RUN <<DOC
 npm clean-install
 DOC
 COPY --chown=node:node . .
+
 
 #ENTRYPOINT ["npm", "run", "start"]
 ENTRYPOINT ["./start.bash"]
