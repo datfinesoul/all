@@ -12,19 +12,27 @@ RUN <<DOC
 apk add \
 	caddy \
 	bash \
-	curl
 DOC
 
+ARG S6_OVERLAY_VERSION=3.1.1.2
+ADD https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-noarch.tar.xz /tmp
+RUN tar -C / -Jxpf /tmp/s6-overlay-noarch.tar.xz
+ADD https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-x86_64.tar.xz /tmp
+RUN tar -C / -Jxpf /tmp/s6-overlay-x86_64.tar.xz
+
 ENV NODE_ENV production
-USER node
 WORKDIR /app
-COPY --chown=node:node package.json package-lock.json ./
+COPY package.json package-lock.json ./
+COPY start.bash /etc/s6-overlay/s6-rc.d/web/run
 
 RUN <<DOC
 npm clean-install
-DOC
-COPY --chown=node:node . .
 
-#ENTRYPOINT ["npm", "run", "start"]
-ENTRYPOINT ["./start.bash"]
-CMD [""]
+mkdir -p /etc/s6-overlay/s6-rc.d/web
+echo longrun > /etc/s6-overlay/s6-rc.d/web/type
+touch /etc/s6-overlay/s6-rc.d/user/contents.d/web
+
+DOC
+COPY . .
+
+ENTRYPOINT ["/init"]

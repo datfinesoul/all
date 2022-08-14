@@ -66,6 +66,16 @@ osx-ip:
 	# need this to connect to the container
 	minikube ip
 
+run-shell: build
+	docker run \
+		--rm \
+		--interactive \
+		--tty \
+		--env-file .env \
+		--name "$(NAME)" \
+		"$(LABEL)" \
+		"/bin/bash"
+
 run: build
 	touch .env
 	docker run \
