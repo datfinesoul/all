@@ -37,6 +37,16 @@ shell:
 		"$(NAME)" \
 		"/bin/bash"
 
+run-shell: build
+	docker run \
+			--rm \
+			--interactive \
+			--tty \
+			--env-file .env \
+			--name "$(NAME)" \
+			"$(LABEL)" \
+			"/bin/bash"
+
 debug: build
 	touch .env
 	docker run \
@@ -78,4 +88,4 @@ run: build
 dive: build
 	dive "${LABEL}"
 
-.PHONY: main docker-start build shell run dive debug osx-debug osx-volume osx-ip
+.PHONY: main docker-start build shell run dive debug osx-debug osx-volume osx-ip run-shell
