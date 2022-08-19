@@ -28,6 +28,7 @@ build:
 		--file "Dockerfile" \
 		--tag "$(LABEL)" \
 		.
+	docker image ls --filter=reference="$(NAME):latest"
 
 # attach to the running debug instance
 shell:
@@ -44,6 +45,7 @@ run-shell: build
 			--tty \
 			--env-file .env \
 			--name "$(NAME)" \
+			--entrypoint '' \
 			"$(LABEL)" \
 			"/bin/bash"
 
