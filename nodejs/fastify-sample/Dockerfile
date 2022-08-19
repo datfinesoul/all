@@ -23,7 +23,6 @@ RUN tar -C / -Jxpf /tmp/s6-overlay-x86_64.tar.xz
 ENV NODE_ENV production
 WORKDIR /app
 COPY package.json package-lock.json ./
-COPY start.bash /etc/s6-overlay/s6-rc.d/web/run
 
 RUN <<DOC
 npm clean-install
@@ -34,5 +33,6 @@ touch /etc/s6-overlay/s6-rc.d/user/contents.d/web
 
 DOC
 COPY . .
+COPY s6.run /etc/s6-overlay/s6-rc.d/web/run
 
 ENTRYPOINT ["/init"]

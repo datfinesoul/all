@@ -1,0 +1,7 @@
+#!/usr/bin/execlineb -P
+
+with-contenv
+importas -ui CWD CWD
+
+cd $CWD
+if { ./start.bash }
