@@ -6,6 +6,7 @@ terraform {
     region         = "us-east-1"
     encrypt        = true
     max_retries    = 2
+    role_arn       = "arn:aws:iam::988857891049:role/glg-state-bucket-test-s2r4-state"
   }
 }
 
@@ -20,9 +21,12 @@ terraform {
 }
 
 provider "aws" {
-  max_retries         = 2 # default:25
-  region              = "us-east-1"
-  allowed_account_ids = ["988857891049"]
+  max_retries = 2 # default:25
+  region      = "us-east-1"
+  allowed_account_ids = [
+    "988857891049", # prototype
+    "107762003257", # sandwich
+  ]
 }
 
 data "aws_region" "current" {}
