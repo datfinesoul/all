@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+CLUSTER=${1}
+
+gh repo clone "glg/gds.clusterconfig.${CLUSTER}"
+ln -s "gds.clusterconfig.${CLUSTER}" "${CLUSTER}"
