@@ -2,7 +2,7 @@
 #CLUSTERS="example i01 i02 i03 i04 i05 i06 i07 i08 i09 i10 i11 i12 i13 i14 i15 i16 i17 i18 i19 i20 i21 i22 i23 i24 i25 i26 i27 i28 i29 i83 i84 i85 i86 i87 i88 i89 i90 i91 i92 i93 i94 i95 i96 i97 i98 i99 j01 j02 j03 j04 j05 j06 j07 j08 j09 j10 j11 j12 j99 p01 p02 p49 s01 s02 s03 s04 s05 s06 s07 s08 s09 s10 s11 s12 s13 s14 s15 s16 s17 s18 tml"
 CLUSTERS="example i01 i02 i03 i04 i05 i06 i07 i08 i09 i10 i11 i12 i13 i14 i15 i16 i17 i18 i19 i20 i21 i22 i23 i24 i25 i26 i27 i28 i29 i83 i84 i85 i86 i87 i88 i89 i90 i91 i92 i93 i94 i95 i96 i97 i98 i99 j01 j02 j03 j04 j05 j06 j07 j08 j09 j10 j11 j12 j99 p01 p02 p49 s02 s03 s04 s05 s06 s07 s08 s09 s10 s11 s12 s13 s14 s15 s16 s17 s18"
 
-#gh repo list --limit 2000 glg > /tmp/allrepos.txt
+#gh repo list --no-archived --limit 2000 glg > /tmp/allrepos.txt
 #grep "gds.clusterconfig" allrepos.txt | awk '{print $1}' | awk -F'.' '{print $3}' | sort
 #manually removed dev, myglg, tml and blank line
 #if you wanted to create a var out of this, something like this:
