@@ -1,0 +1,39 @@
+# vi:syntax=yaml
+name: Generate Wiki Links
+on:
+  push:
+    branches:
+    - main
+    paths-ignore:
+    - 'README.md'
+  workflow_dispatch:
+
+concurrency:
+  group: '${{ github.workflow }} @ ${{ github.event.pull_request.head.label || github.head_ref || github.ref }} @ deploy'
+  cancel-in-progress: true
+
+jobs:
+  generate-wiki-links:
+    runs-on: ubuntu-20.04
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        path: code
+
+    - uses: actions/checkout@v2
+      with:
+        repository: ${{github.repository}}.wiki
+        path: wiki
+
+    - uses: actions/checkout@v2
+      with:
+        ssh-key: ${{secrets.GDS_CHINA_CLUSTERCONFIG_PRIVATE}}
+        repository: glg/gds-china
+        clean: true
+        path: gds
+
+    - uses: glg-public/gds-generate-wiki-links@gds-china
+      with:
+        gds_repo: glg/gds-china
+        git_username: "Generating Wiki Links"
+        git_email: "githubdevopsuser@glgroup.com"
