@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+CLUSTERS="s51 s52 p51 i51"
+
+#gh repo list --limit 2000 glg > /tmp/allrepos.txt
+#grep "gds.china.clusterconfig" allrepos.txt | awk '{print $1}' | awk -F'.' '{print $3}' | sort
+#manually removed dev, myglg, tml and blank line
+#if you wanted to create a var out of this, something like this:
+#  (readarray -t ARRAY < input.txt; IFS=','; echo "${ARRAY[*]}")
+
+function ensure_wiki() {
+  CLUSTER="$1"
+  echo "    Replacing Wiki Action in $CLUSTER"
+  cp ../tml/generate-wiki-links.yml .github/workflows/generate-wiki-links.yml
+  git add .github/workflows/generate-wiki-links.yml
+}
+
+for CLUSTER in $CLUSTERS; do
+  echo "[+] $CLUSTER"
+  if [ ! -d "$CLUSTER" ]; then
+    ./get "$CLUSTER"
+  fi
+  pushd "$CLUSTER" > /dev/null || exit
+  git reset --hard
+  git checkout main
+  git pull
+  git checkout -B sumo-saml-cutover
+  ensure_wiki "$CLUSTER"
+  git commit -m "Auto-update generate-wiki-links"
+  git push -u origin sumo-saml-cutover
+  gh pr create --title "Update workflows" --body "This is an automated PR created to update generate-wiki-links" | tee -a ../PRs
+  git checkout main
+  popd > /dev/null || exit
+done
