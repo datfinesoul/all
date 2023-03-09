@@ -32,8 +32,13 @@ Resources:
           Type: Schedule
           Properties:
             Schedule: cron(0 * * * ? *)
-      MemorySize: 128
-      Timeout: 100
+      MemorySize: 1024
+      Timeout: 50
+      Environment:
+        Variables:
+          BW_CLIENTID: empty
+          BW_CLIENTSECRET: empty
+          BW_PASSWD: empty
     Metadata:
       Dockerfile: Dockerfile
       DockerContext: .
