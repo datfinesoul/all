@@ -27,11 +27,32 @@ function fix_codeowners() {
     "datfinesoul"
     "bkelley123"
     "sayeefb"
+    "@cwebster2"
     "glg\/github-maintenance-admin"
   )
 
   # Path to your CODEOWNERS file
   codeowners_file="CODEOWNERS"
+
+  if [[ ! -e "${codeowners_file}" ]]; then
+    cat > "${codeowners_file}" << DOC
+# Default Owners/Approvers
+# This is the default list of approvers when no more granular path is listed below
+
+*
+
+# Granular Owners/Approvers
+# Each line is a file pattern followed by one OR MORE owners
+#
+# Keep the file patterns in alphabetical order so that we can more easily manage this list
+#
+# *****************************
+# **ALPHABETICAL ORDER PLEASE**
+# *****************************
+CODEOWNERS @glg/github-maintenance-admin
+DOC
+    return
+  fi
 
   # Read the file into an array
   mapfile -t lines < "$codeowners_file"
@@ -49,9 +70,39 @@ function fix_codeowners() {
       break
     fi
   done
-
-  # Write the modified lines back to the file
   printf "%s\n" "${lines[@]}" > "$codeowners_file"
+
+  echo 'CODEOWNERS @glg/github-maintenance-admin' >> "$codeowners_file"
+  # Write the modified lines back to the file
+  # Find the index of the last line starting with "#"
+  if ! fgrep -n "# *****************************" "$codeowners_file" &> /dev/null; then
+    return
+  fi
+  # Find the index of the last line starting with "#"
+  last_comment_line=$(grep -n "^#" "$codeowners_file" | tail -n 1 | cut -d ':' -f 1)
+
+  # Sort the lines after the last comment line using sed
+  sorted_lines=$(tail -n +$((last_comment_line + 1)) "$codeowners_file" | sed -e "/^#/q" | sort)
+
+  # Create a temporary file to store the sorted lines
+  temp_file=$(mktemp)
+
+  # Copy the sorted lines to the temporary file
+  echo "$sorted_lines" > "$temp_file"
+
+  # Replace the lines after the last comment line with the sorted lines
+  # shoudl be OSX and Linux compatible
+  if sed -i.bak "${last_comment_line}q" "$codeowners_file"; then
+    cat "$temp_file" >> "$codeowners_file"
+    rm "$codeowners_file.bak"
+  else
+    sed "${last_comment_line}q" "$codeowners_file" > "$codeowners_file.tmp"
+    cat "$temp_file" >> "$codeowners_file.tmp"
+    mv "$codeowners_file.tmp" "$codeowners_file"
+  fi
+
+  # Remove the temporary file
+  rm "$temp_file"
 }
 
 for CLUSTER in $CLUSTERS; do
@@ -67,7 +118,7 @@ for CLUSTER in $CLUSTERS; do
   fix_codeowners "$CLUSTER"
 
   popd > /dev/null || exit
-  if [[ "${CLUSTER}" == "i02" ]]; then
+  if [[ "${CLUSTER}" == "i10" ]]; then
     break
   fi
   continue
