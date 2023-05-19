@@ -27,14 +27,20 @@ function fix_codeowners() {
     "datfinesoul"
     "bkelley123"
     "sayeefb"
-    "@cwebster2"
+    "cwebster2"
     "glg\/github-maintenance-admin"
+    "Nelsonlin0321"
   )
 
   # Path to your CODEOWNERS file
   codeowners_file="CODEOWNERS"
 
   if [[ ! -e "${codeowners_file}" ]]; then
+    # Fow now, just skip missing CODEOWNERS repositories
+    echo ":: missing CODEOWNERS, SKIP"
+    return
+
+    # Add a new CODEOWNERS file
     cat > "${codeowners_file}" << DOC
 # Default Owners/Approvers
 # This is the default list of approvers when no more granular path is listed below
@@ -72,10 +78,14 @@ DOC
   done
   printf "%s\n" "${lines[@]}" > "$codeowners_file"
 
-  echo 'CODEOWNERS @glg/github-maintenance-admin' >> "$codeowners_file"
+  if ! fgrep -n "CODEOWNERS @glg/github-maintenance-admin" "$codeowners_file" &> /dev/null; then
+    echo ":: adding new CODEOWNERS line"
+    echo 'CODEOWNERS @glg/github-maintenance-admin' >> "$codeowners_file"
+  fi
   # Write the modified lines back to the file
   # Find the index of the last line starting with "#"
   if ! fgrep -n "# *****************************" "$codeowners_file" &> /dev/null; then
+    echo ":: skip sorting"
     return
   fi
   # Find the index of the last line starting with "#"
@@ -112,21 +122,24 @@ for CLUSTER in $CLUSTERS; do
   fi
   pushd "$CLUSTER" > /dev/null || exit
   git reset --hard
-  git checkout main
-  git pull
-  git checkout -B sumo-saml-cutover
+  git clean -xdff .
+  git checkout main &> /dev/null
+  git pull &> /dev/null
+  git checkout -B codeowners-cleanup
   fix_codeowners "$CLUSTER"
-
-  popd > /dev/null || exit
-  if [[ "${CLUSTER}" == "i10" ]]; then
-    break
+  if git --no-pager diff --exit-code; then
+    echo ":: no difference, SKIP"
+    popd > /dev/null || exit
+    continue
   fi
-  continue
 
-  break
-  git commit -m "Auto-update generate-wiki-links"
-  git push -u origin sumo-saml-cutover
-  gh pr create --title "Update workflows" --body "This is an automated PR created to update generate-wiki-links" | tee -a ../PRs
-  git checkout main
+  #if [[ "${CLUSTER}" == "i10" ]]; then
+  #  break
+  #fi
+  #continue
+
+  echo git commit -m "Auto-update CODEOWNERS"
+  echo git push -u origin codeowners-cleanup
+  echo gh pr create --title "Update CODEOWNERS" --body "This is an automated PR created to update CODEOWNERS" | tee -a ../PRs
   popd > /dev/null || exit
 done
