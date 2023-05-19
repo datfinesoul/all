@@ -133,13 +133,13 @@ for CLUSTER in $CLUSTERS; do
     continue
   fi
 
-  #if [[ "${CLUSTER}" == "i10" ]]; then
-  #  break
-  #fi
   #continue
 
-  echo git commit -m "Auto-update CODEOWNERS"
-  echo git push -u origin codeowners-cleanup
-  echo gh pr create --title "Update CODEOWNERS" --body "This is an automated PR created to update CODEOWNERS" | tee -a ../PRs
+  git commit -am "Auto-update CODEOWNERS"
+  git push -u origin codeowners-cleanup
+  gh pr create --title "Update CODEOWNERS" --body "This is an automated PR created to update CODEOWNERS" | tee -a ../PRs
+  #if [[ "${CLUSTER}" == "i01" ]]; then
+  #  break
+  #fi
   popd > /dev/null || exit
 done
