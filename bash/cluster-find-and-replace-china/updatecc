@@ -122,6 +122,7 @@ for CLUSTER in $CLUSTERS; do
   pushd "$CLUSTER" > /dev/null || exit
   git reset --hard
   git clean -xdff .
+  git fetch --all
   git checkout main &> /dev/null
   git pull &> /dev/null
   git checkout -B codeowners-cleanup
