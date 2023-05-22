@@ -1,17 +1,117 @@
 #!/usr/bin/env bash
-CLUSTERS="s51 s52 p51 i51"
+set -euo pipefail
+IFS=$'\n\t'
 
-#gh repo list --limit 2000 glg > /tmp/allrepos.txt
-#grep "gds.china.clusterconfig" allrepos.txt | awk '{print $1}' | awk -F'.' '{print $3}' | sort
-#manually removed dev, myglg, tml and blank line
-#if you wanted to create a var out of this, something like this:
-#  (readarray -t ARRAY < input.txt; IFS=','; echo "${ARRAY[*]}")
+CLUSTERS="$(
+gh api \
+  -H "Accept: application/vnd.github+json" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  '/search/repositories?q=gds.china.clusterconfig.&per_page=100' \
+	| jq -r '.items[]|.name' \
+	| sort \
+  | awk -F'.' -v ORS=$'\t' '/^gds[.]china[.]clusterconfig[.][ispj][0-9]{2}/ {print $4}' \
+)"
 
 function ensure_wiki() {
   CLUSTER="$1"
   echo "    Replacing Wiki Action in $CLUSTER"
   cp ../tml/generate-wiki-links.yml .github/workflows/generate-wiki-links.yml
   git add .github/workflows/generate-wiki-links.yml
+}
+
+function fix_codeowners() {
+  CLUSTER="$1"
+  # Specify the usernames to remove
+  usernames=(
+    "igroff"
+    "datfinesoul"
+    "bkelley123"
+    "sayeefb"
+    "cwebster2"
+    "glg\/github-maintenance-admin"
+    "Nelsonlin0321"
+  )
+
+  # Path to your CODEOWNERS file
+  codeowners_file="CODEOWNERS"
+
+  if [[ ! -e "${codeowners_file}" ]]; then
+    # Fow now, just skip missing CODEOWNERS repositories
+    echo ":: missing CODEOWNERS"
+
+    # Add a new CODEOWNERS file
+    cat > "${codeowners_file}" << DOC
+# Default Owners/Approvers
+# This is the default list of approvers when no more granular path is listed below
+
+*
+
+# Granular Owners/Approvers
+# Each line is a file pattern followed by one OR MORE owners
+#
+# Keep the file patterns in alphabetical order so that we can more easily manage this list
+#
+# *****************************
+# **ALPHABETICAL ORDER PLEASE**
+# *****************************
+CODEOWNERS @glg/github-maintenance-admin
+DOC
+    return
+  fi
+
+  # Read the file into an array
+  mapfile -t lines < "$codeowners_file"
+
+  # Loop through the lines and modify the appropriate line
+  for ((i=0; i<${#lines[@]}; i++)); do
+    line="${lines[$i]}"
+    if echo "$line" | grep -q "^\*"; then
+      # Remove the usernames from the line
+      for username in "${usernames[@]}"; do
+        line=$(echo "$line" | sed "s/ @$username//g")
+      done
+      # Update the line in the array
+      lines[$i]="$line"
+      break
+    fi
+  done
+  printf "%s\n" "${lines[@]}" > "$codeowners_file"
+
+  if ! fgrep -n "CODEOWNERS @glg/github-maintenance-admin" "$codeowners_file" &> /dev/null; then
+    echo ":: adding new CODEOWNERS line"
+    echo 'CODEOWNERS @glg/github-maintenance-admin' >> "$codeowners_file"
+  fi
+  # Write the modified lines back to the file
+  # Find the index of the last line starting with "#"
+  if ! fgrep -n "# *****************************" "$codeowners_file" &> /dev/null; then
+    echo ":: skip sorting"
+    return
+  fi
+  # Find the index of the last line starting with "#"
+  last_comment_line=$(grep -n "^#" "$codeowners_file" | tail -n 1 | cut -d ':' -f 1)
+
+  # Sort the lines after the last comment line using sed
+  sorted_lines=$(tail -n +$((last_comment_line + 1)) "$codeowners_file" | sed -e "/^#/q" | sort)
+
+  # Create a temporary file to store the sorted lines
+  temp_file=$(mktemp)
+
+  # Copy the sorted lines to the temporary file
+  echo "$sorted_lines" > "$temp_file"
+
+  # Replace the lines after the last comment line with the sorted lines
+  # shoudl be OSX and Linux compatible
+  if sed -i.bak "${last_comment_line}q" "$codeowners_file"; then
+    cat "$temp_file" >> "$codeowners_file"
+    rm "$codeowners_file.bak"
+  else
+    sed "${last_comment_line}q" "$codeowners_file" > "$codeowners_file.tmp"
+    cat "$temp_file" >> "$codeowners_file.tmp"
+    mv "$codeowners_file.tmp" "$codeowners_file"
+  fi
+
+  # Remove the temporary file
+  rm "$temp_file"
 }
 
 for CLUSTER in $CLUSTERS; do
@@ -21,13 +121,31 @@ for CLUSTER in $CLUSTERS; do
   fi
   pushd "$CLUSTER" > /dev/null || exit
   git reset --hard
-  git checkout main
-  git pull
-  git checkout -B sumo-saml-cutover
-  ensure_wiki "$CLUSTER"
-  git commit -m "Auto-update generate-wiki-links"
-  git push -u origin sumo-saml-cutover
-  gh pr create --title "Update workflows" --body "This is an automated PR created to update generate-wiki-links" | tee -a ../PRs
-  git checkout main
+  git clean -xdff .
+  git checkout main &> /dev/null
+  git pull &> /dev/null
+  git checkout -B codeowners-cleanup
+  fix_codeowners "$CLUSTER"
+  git add -A
+  if git --no-pager diff --cached --exit-code; then
+    echo ":: no difference, SKIP"
+    popd > /dev/null || exit
+    continue
+  fi
+
+  #continue
+
+  if [[ "${1:-}" == "--no-dry-run" ]]; then
+    git commit -am "Auto-update CODEOWNERS"
+    git push -u origin codeowners-cleanup
+    gh pr create --title "Update CODEOWNERS" --body "This is an automated PR created to update CODEOWNERS" | tee -a ../PRs
+  else
+    echo git commit -am "Auto-update CODEOWNERS"
+    echo git push -u origin codeowners-cleanup
+    echo gh pr create --title "Update CODEOWNERS" --body "This is an automated PR created to update CODEOWNERS"
+  fi
+  #if [[ "${CLUSTER}" == "i01" ]]; then
+  #  break
+  #fi
   popd > /dev/null || exit
 done
