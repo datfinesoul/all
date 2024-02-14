@@ -9,7 +9,7 @@ if [[ ! -f issues.txt ]]; then
     --state all \
     --limit 300 \
     --label Standup \
-    --search 2022 \
+    --search 2023 \
     > issues.txt
 fi
 
