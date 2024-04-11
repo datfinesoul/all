@@ -18,3 +18,11 @@ echo ":: 1 option"
 input "Hello"
 echo ":: nothing"
 input
+
+
+info () {
+  test ! -t 0 && sed 's/^/:: /g' || >&2 echo -e ":: $@";
+}
+
+ls -1 /tmp | info
+info "Seems to work"
