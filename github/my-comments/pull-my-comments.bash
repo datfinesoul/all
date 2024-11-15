@@ -36,22 +36,23 @@ jq -r '"### " + .title, (.comments[] | select(.author.login=="datfinesoul") | .b
   "$year/issues/"*.json \
   > "$year.md"
 
+cp "$year.md" before.md
 while read -r line; do
   # Extract only valid GitHub URLs with awk
-  read -r USER REPO NUMBER <<< "$(echo "$line" | awk -F'/' '
+  IFS=$' ' read -r user repo number kind <<< "$(echo "$line" | awk -F'/' '
     /https:\/\/github.com\/.*\/.*\/(issues|pull)\/[0-9]+/ {
       user=$4
       repo=$5
+      kind=$6
       number=$7
       sub("[^0-9]+$", "", number)  # Remove trailing non-numeric characters
-      print user, repo, number
+      print user, repo, number, kind
     }')"
-  echo "sss$USER"
-
-  # Check if variables are set and output the result
-  if [[ -n "$USER" && -n "$REPO" && -n "$NUMBER" ]]; then
-    echo "$USER/$REPO/$NUMBER"
+  if [[ "$kind" == "issues" ]]; then
+    title="$(gh issue view "$number" --repo "$user/$repo" --json title --jq '.title')"
+  elif [[ "$kind" == "pull" ]]; then
+    title="$(gh pr view "$number" --repo "$user/$repo" --json title --jq '.title')"
   fi
-    #gh issue view 42 --json title --jq '.title'
-    #gh pr view 17 --json title --jq '.title'
+  gsed -ie "s|https://github.com/$user/$repo/$kind/$number|$user/$repo: $title|g" \
+    "$year.md"
 done <<< "$(<"$year.md" grep 'github.com\/.*issues\|pull')"
