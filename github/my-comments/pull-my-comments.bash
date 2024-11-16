@@ -32,7 +32,7 @@ cat issues.txt \
     --json title \
     >> "$year/issues/$issue_id.json"
 done
-jq -r '"### " + .title, (.comments[] | select(.author.login=="datfinesoul") | .body)' \
+jq -r '"### " + .title, (.comments[] | select(.author.login=="GITHUBUSERNAME") | .body)' \
   "$year/issues/"*.json \
   > "$year.md"
 
