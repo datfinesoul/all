@@ -222,8 +222,6 @@ else
   info "Using cached involved PRs ($(jq 'length' "$involved_prs_cache") PRs)"
 fi
 
-exit 0
-
 # Phase 2: Download detailed data for standup issues including all
 # comments. Skips already-downloaded issues to enable incremental
 # updates and avoid rate limits.
@@ -243,7 +241,7 @@ while read -r issue_json; do
 
   issue_num="$(echo "$issue_json" | jq -r '.number')"
   standup_json="$standup_dir/$issue_num.json"
-  
+
   if [[ -f "$standup_json" ]]; then
     skipped=$((skipped + 1))
     continue
@@ -256,17 +254,17 @@ while read -r issue_json; do
 
   debug "Downloading standup issue #$issue_num..."
   downloaded=$((downloaded + 1))
-  
+
   # Fetch comments only (metadata already in cache)
-  full_issue="$(gh issue view "$issue_num" --repo "$repo" --json number,title,url,createdAt,closedAt,state,body,comments 2>/dev/null || echo '{}')"
-  
+  full_issue="$(gh issue view "$issue_num" --repo "$repo" --json comments 2>/dev/null || echo '{}')"
+
   # Skip if fetch failed
-  if [[ "$(echo "$full_issue" | jq -r '.number // empty')" == "" ]]; then
+  if [[ "$(echo "$full_issue" | jq -r '.comments // empty')" == "" ]]; then
     debug "Skipping standup issue #$issue_num (fetch failed)"
     downloaded=$((downloaded - 1))
     continue
   fi
-  
+
   # Merge cached metadata with fetched comments
   echo "$issue_json" | jq --argjson comments "$(echo "$full_issue" | jq '.comments')" \
     '. + {comments: $comments}' > "$standup_json"
@@ -303,11 +301,11 @@ while read -r issue_json; do
   debug "Downloading involved issue $repo_owner/$repo_name#$issue_num..."
   involved_downloaded=$((involved_downloaded + 1))
 
-  # Fetch full issue details with comments (assignees/author already in cache)
-  full_issue="$(gh issue view "$issue_num" --repo "$repo_owner/$repo_name" --json number,title,url,createdAt,closedAt,state,body,comments 2>/dev/null || echo '{}')"
+  # Fetch comments only (assignees/author/metadata already in cache)
+  full_issue="$(gh issue view "$issue_num" --repo "$repo_owner/$repo_name" --json comments 2>/dev/null || echo '{}')"
 
   # Skip if fetch failed (empty object or missing required fields)
-  if [[ "$(echo "$full_issue" | jq -r '.number // empty')" == "" ]]; then
+  if [[ "$(echo "$full_issue" | jq -r '.comments // empty')" == "" ]]; then
     debug "Skipping $repo_owner/$repo_name#$issue_num (fetch failed)"
     involved_downloaded=$((involved_downloaded - 1))
     continue
@@ -364,11 +362,11 @@ while read -r pr_json; do
   debug "Downloading involved PR $repo_owner/$repo_name#$pr_num..."
   prs_downloaded=$((prs_downloaded + 1))
 
-  # Fetch full PR details with comments (assignees/author already in cache)
-  full_pr="$(gh pr view "$pr_num" --repo "$repo_owner/$repo_name" --json number,title,url,createdAt,closedAt,state,body,comments 2>/dev/null || echo '{}')"
+  # Fetch comments only (assignees/author/metadata already in cache)
+  full_pr="$(gh pr view "$pr_num" --repo "$repo_owner/$repo_name" --json comments 2>/dev/null || echo '{}')"
 
   # Skip if fetch failed (empty object or missing required fields)
-  if [[ "$(echo "$full_pr" | jq -r '.number // empty')" == "" ]]; then
+  if [[ "$(echo "$full_pr" | jq -r '.comments // empty')" == "" ]]; then
     debug "Skipping $repo_owner/$repo_name#$pr_num (fetch failed)"
     prs_downloaded=$((prs_downloaded - 1))
     continue
