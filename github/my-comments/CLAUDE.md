@@ -28,7 +28,10 @@ This is **Phase 1** (data collection) of a two-phase self-review process:
 ### Required Tools
 - **GitHub CLI** (`gh`) - Must be authenticated with access to target repository
 - **jq** - Command-line JSON processor
-- **GNU sed** - Text processing (use `gsed` on macOS, `sed` on Linux)
+- **GNU sed** - Text processing
+  - Linux: Usually pre-installed as `sed`
+  - macOS: Install with `brew install gnu-sed` (creates `gsed` command)
+  - Script auto-detects GNU sed and falls back to `gsed` if needed
 
 ### Repository Access
 - Read access to the target GitHub repository (default: organization meetings repo)
@@ -55,7 +58,7 @@ All configuration is passed via command-line flags. Parameters can be specified 
 - **`-y <year>`** - Year to collect data for (default: current year)
 - **`-i <limit>`** - Maximum issues to fetch (default: `300`)
 - **`-p <limit>`** - Maximum issues to process (default: `200`)
-- **`-s <cmd>`** - Sed command to use: `sed` or `gsed` (default: `sed`)
+- **`-s <cmd>`** - Sed command: `sed` or `gsed` (default: `sed`, auto-detects GNU sed)
 
 **Examples:**
 
@@ -85,6 +88,7 @@ All output files are written to the `outputs/<username>/` directory:
 
 - `outputs/<username>/issues.txt` - Cached list of standup issues
 - `outputs/<username>/$year/issues/*.json` - Individual issue data files (one per issue)
+- `outputs/<username>/url_cache/*.txt` - Cached GitHub issue/PR titles for URL resolution
 - `outputs/<username>/$year.md` - **Final compiled markdown document** (e.g., `2025.md`)
 - `outputs/<username>/before.md` - Backup created before URL resolution
 
@@ -115,12 +119,47 @@ user/repo: Issue Title Here
 - **Incremental**: Only fetches missing issue details
 - **Non-destructive**: Creates backup before URL replacement
 - **Error-strict**: Exits immediately on errors (`set -euo pipefail`)
+- **User-isolated**: Organizes outputs by username to support multiple users
+- **Validated**: Checks for required parameters before execution
+- **Cached**: Reuses downloaded data to minimize API calls and rate limit impact
+- **Platform-aware**: Auto-detects GNU sed availability and provides helpful install messages
 
 ## Limitations
 
-- Requires all parameters to be passed as command-line arguments
+- Three required parameters: repo, username, and label must be provided
 - Organization/formatting of output for HR review is a separate step
-- Platform-specific sed command must be specified (gsed/sed)
+- Requires GNU sed (script auto-detects and provides install guidance)
+- Handles up to configured limits for issues (default 300 fetched, 200 processed)
+
+## Cache Management
+
+Use `cache-clear.bash` to view and manage cached data:
+
+```bash
+# View cache statistics (default)
+./cache-clear.bash -u <username>
+
+# Clear specific caches
+./cache-clear.bash -u <username> -i  # Clear issue list
+./cache-clear.bash -u <username> -j  # Clear JSON details
+./cache-clear.bash -u <username> -c  # Clear URL titles
+
+# Clear multiple caches
+./cache-clear.bash -u <username> -i -c  # Clear issues and URLs
+
+# Clear everything
+./cache-clear.bash -u <username> -a
+```
+
+**Cache Types:**
+- **Issue list** (`-i`): The initial list of issues fetched from GitHub
+- **JSON details** (`-j`): Full issue data including all comments
+- **URL titles** (`-c`): Cached titles for GitHub issue/PR URL resolution
+
+**Why clear cache:**
+- Issue list: When new issues are added to the repository
+- JSON details: When comments are updated or added to existing issues
+- URL titles: When issue/PR titles are changed (rare)
 
 ## Example Output Format
 
@@ -132,3 +171,20 @@ Referenced: user/repo: Fix terraform state locking issue
 ### Weekly Standup - Jan 15, 2024
 Implemented new CI/CD pipeline for automated deployments.
 ```
+
+## Development Guidelines
+
+When modifying this script:
+
+1. **Comments**: Explain purpose and rationale, not actions. Keep lines ≤75 chars.
+2. **Parameters**: Use dash flags (`-r`, `-u`, etc.) for all configuration
+3. **Defaults**: Only year, limits, and sed command have defaults - core params are required
+4. **Output Structure**: All files go to `outputs/<username>/<year>/` for multi-user support
+5. **Error Handling**: Validate inputs early, fail fast with clear error messages
+6. **Caching**: Check for existing files before API calls to enable incremental runs
+7. **Logging Format**: All messages use `>&2 echo "[X] message"` format where:
+   - `[i]` = informational messages (general progress, completion)
+   - `[d]` = debug messages (detailed per-item progress)
+   - `[x]` = error messages (failures, missing requirements)
+8. **Progress Reporting**: Provide status updates for all long-running operations to avoid appearance of hanging
+9. **Sed Compatibility**: Use `-i'' -e` format for in-place edits (works on both BSD and GNU sed without creating backup files)
