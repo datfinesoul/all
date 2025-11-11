@@ -3,6 +3,12 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+# Cleanup trap to remove temp files on exit
+cleanup() {
+  rm -f "outputs/$github_username/$year/temp-issues-$$.txt" 2>/dev/null || true
+}
+trap cleanup EXIT
+
 # Color definitions for logging
 red="$(tput setaf 1)"
 green="$(tput setaf 2)"
@@ -18,12 +24,13 @@ custom_log() {
     local prefix="$1"
     local postfix="$2"
     shift 2
+    local epoch="$(date +%s)"
     if [[ -p /dev/stdin && "$#" -eq 0 ]]; then
         while IFS= read -r line || [ -n "$line" ]; do
-            >&2 echo -e "${prefix}${line}${postfix}"
+            >&2 echo -e "${epoch} ${prefix}${line}${postfix}"
         done
     else
-        >&2 echo -e "${prefix}$*${postfix}"
+        >&2 echo -e "${epoch} ${prefix}$*${postfix}"
     fi
 }
 plain() { custom_log "" "" "$@"; }
@@ -130,13 +137,19 @@ check_rate_limit() {
   fi
 }
 
+# Output ISO timestamp at script start
+>&2 echo "START: $(date -Iseconds)"
+
 # Setup: Create user-specific output directory for organizing
 # multiple users' data
-mkdir -p "outputs/$github_username"
+mkdir -p "outputs/$github_username/$year/standup"
+
+# Cleanup stale temp files from previous crashed runs
+find "outputs/$github_username/$year" -maxdepth 1 -name "temp-issues-*.txt" -type f -delete 2>/dev/null || true
 
 # Phase 1: Discover all relevant issues from the repository.
 # Caches results to avoid repeated API calls when re-running.
-if [[ ! -f "outputs/$github_username/issues.txt" ]]; then
+if [[ ! -f "outputs/$github_username/$year/issues.txt" ]]; then
   info "Fetching issue list from $repo..."
   gh \
     -R "$repo" issue list \
@@ -144,13 +157,11 @@ if [[ ! -f "outputs/$github_username/issues.txt" ]]; then
     --limit "$issue_limit" \
     --label "$issue_label" \
     --search "$year" \
-    > "outputs/$github_username/issues.txt"
-  pass "Found $(wc -l < "outputs/$github_username/issues.txt") issues"
+    > "outputs/$github_username/$year/issues.txt"
+  pass "Found $(wc -l < "outputs/$github_username/$year/issues.txt") issues"
 else
-  info "Using cached issue list ($(wc -l < "outputs/$github_username/issues.txt") issues)"
+  info "Using cached issue list ($(wc -l < "outputs/$github_username/$year/issues.txt") issues)"
 fi
-
-mkdir -p "outputs/$github_username/$year/standup"
 
 # Phase 2: Download detailed data for each issue including all
 # comments. Skips already-downloaded issues to enable incremental
@@ -161,8 +172,8 @@ downloaded=0
 skipped=0
 
 # Extract issue IDs to process - use temp file to avoid pipefail issues
-temp_issues="outputs/$github_username/temp-issues-$$.txt"
-head -n"$issue_process_limit" "outputs/$github_username/issues.txt" > "$temp_issues"
+temp_issues="outputs/$github_username/$year/temp-issues-$$.txt"
+head -n"$issue_process_limit" "outputs/$github_username/$year/issues.txt" > "$temp_issues"
 
 # Process directly from file
 iteration=0
@@ -196,7 +207,6 @@ while read -r issue_id _rest; do
     --json title \
     > "outputs/$github_username/$year/standup/$issue_id.json"
 done < "$temp_issues"
-rm -f "$temp_issues"
 pass "Standup issues - Downloaded: $downloaded, Skipped (cached): $skipped"
 
 # Phase 2b: Discover involved issues (assigned or authored) from org.
@@ -204,7 +214,7 @@ pass "Standup issues - Downloaded: $downloaded, Skipped (cached): $skipped"
 # filtering by created/closed dates. Caches results to avoid
 # repeated API calls.
 org="$(echo "$repo" | cut -d/ -f1)"
-involved_cache="outputs/$github_username/involved-issues-$year.json"
+involved_cache="outputs/$github_username/$year/involved-issues.json"
 
 if [[ ! -f "$involved_cache" ]]; then
   info "Fetching involved issues (assigned/authored) from org: $org..."
@@ -283,189 +293,7 @@ done < <(jq -c '.[]' "$involved_cache")
 
 pass "Involved issues - Downloaded: $involved_downloaded, Skipped (cached): $involved_skipped"
 
-# Phase 3: Compile date-organized markdown with standup and
-# involvement sections. Groups by date (prefer closed, fallback
-# to created) and creates separate sections for each.
-info "Compiling date-organized markdown..."
+pass "Done! All data cached in outputs/$github_username/$year/"
 
-# Temporary file to collect all entries with dates
-temp_entries="outputs/$github_username/$year-temp-entries.txt"
-> "$temp_entries"
-
-# Process standup issues: extract date from title and comments
-if compgen -G "outputs/$github_username/$year/standup/"*.json > /dev/null; then
-  for standup_file in "outputs/$github_username/$year/standup/"*.json; do
-    title="$(jq -r '.title' "$standup_file")"
-
-    # Extract date from standup title - try multiple formats:
-    # "November 12th 2024", "Jan 8, 2024", "January 8 2024", etc.
-    standup_date="unknown"
-
-    # Try format: "Month DDth YYYY" or "Month DD YYYY"
-    date_str="$(echo "$title" | grep -oE '[A-Za-z]+ [0-9]{1,2}(st|nd|rd|th)? [0-9]{4}' | head -1 | sed 's/\(st\|nd\|rd\|th\) / /' || true)"
-    if [[ -n "$date_str" ]]; then
-      standup_date="$(date -d "$date_str" +%Y-%m-%d 2>/dev/null || echo "unknown")"
-    fi
-
-    # Try format: "Month DD, YYYY" if first attempt failed
-    if [[ "$standup_date" == "unknown" ]]; then
-      date_str="$(echo "$title" | grep -oE '[A-Za-z]+ [0-9]{1,2}, [0-9]{4}' | head -1 || true)"
-      if [[ -n "$date_str" ]]; then
-        standup_date="$(date -d "$date_str" +%Y-%m-%d 2>/dev/null || echo "unknown")"
-      fi
-    fi
-
-    # Extract user's comments
-    comments="$(jq -r '.comments[] | select(.author.login=="'"$github_username"'") | .body' "$standup_file")"
-
-    if [[ -n "$comments" && "$standup_date" != "unknown" ]]; then
-      echo "STANDUP|$standup_date|$title|$comments" >> "$temp_entries"
-    fi
-  done
-fi
-
-# Process involved issues: use closed date or created date
-if compgen -G "outputs/$github_username/$year/involved-issues/"*.json > /dev/null; then
-  for involved_file in "outputs/$github_username/$year/involved-issues/"*.json; do
-    closed_at="$(jq -r '.closedAt // empty' "$involved_file")"
-    created_at="$(jq -r '.createdAt' "$involved_file")"
-
-    # Prefer closed date, fallback to created date
-    if [[ -n "$closed_at" ]]; then
-      activity_date="$(echo "$closed_at" | cut -d'T' -f1)"
-    else
-      activity_date="$(echo "$created_at" | cut -d'T' -f1)"
-    fi
-
-    # Extract issue details
-    repo_owner="$(jq -r '.url' "$involved_file" | cut -d'/' -f4)"
-    repo_name="$(jq -r '.url' "$involved_file" | cut -d'/' -f5)"
-    issue_num="$(jq -r '.number' "$involved_file")"
-    title="$(jq -r '.title' "$involved_file")"
-    participation="$(jq -r '.participation' "$involved_file")"
-    body="$(jq -r '.body // ""' "$involved_file")"
-
-    # Extract summary: first paragraph or first 200 chars
-    summary="$(echo "$body" | head -c 200 | sed 's/\r//g' | tr '\n' ' ')"
-    if [[ ${#summary} -eq 200 ]]; then
-      summary="${summary}..."
-    fi
-
-    echo "INVOLVED|$activity_date|[$participation] $repo_owner/$repo_name#$issue_num: $title|$summary" >> "$temp_entries"
-  done
-fi
-
-# Sort by date and generate markdown with date headings
-sort -t'|' -k2 "$temp_entries" | awk -F'|' '
-BEGIN {
-  current_date = ""
-}
-{
-  entry_type = $1
-  entry_date = $2
-  entry_title = $3
-  entry_content = $4
-
-  # New date heading
-  if (entry_date != current_date) {
-    if (current_date != "") {
-      print ""
-    }
-    print "## " entry_date
-    print ""
-    current_date = entry_date
-    current_section = ""
-  }
-
-  # Section headers
-  if (entry_type == "STANDUP" && current_section != "STANDUP") {
-    print "### Standup"
-    print ""
-    current_section = "STANDUP"
-  } else if (entry_type == "INVOLVED" && current_section != "INVOLVED") {
-    if (current_section != "") print ""
-    print "### Involvement"
-    print ""
-    current_section = "INVOLVED"
-  }
-
-  # Content
-  if (entry_type == "STANDUP") {
-    print "**" entry_title "**"
-    print entry_content
-    print ""
-  } else if (entry_type == "INVOLVED") {
-    print "**" entry_title "**"
-    if (entry_content != "") {
-      print entry_content
-    }
-    print ""
-  }
-}
-' > "outputs/$github_username/$year.md"
-
-rm -f "$temp_entries"
-pass "Created outputs/$github_username/$year.md"
-
-# Phase 4: Enhance readability by replacing GitHub URLs with
-# human-readable titles. Makes it easier to understand referenced
-# work without clicking through to each link.
-info "Resolving GitHub URLs to titles..."
-cp "outputs/$github_username/$year.md" "outputs/$github_username/before.md"
-
-# Create cache directory for URL title resolutions
-mkdir -p "outputs/$github_username/url_cache"
-
-url_count=0
-cached_count=0
-fetched_count=0
-
-# Extract URLs to process (use || true to prevent grep failure on no matches)
-urls_to_process="$(grep 'github.com\/.*issues\|pull' "outputs/$github_username/$year.md" || true)"
-
-if [[ -n "$urls_to_process" ]]; then
-  while read -r line; do
-    [[ -z "$line" ]] && continue
-    ((url_count++)) || true
-    IFS=$' ' read -r user repo number kind <<< "$(echo "$line" | awk -F'/' '
-      /https:\/\/github.com\/.*\/.*\/(issues|pull)\/[0-9]+/ {
-        user=$4
-        repo=$5
-        kind=$6
-        number=$7
-        sub("[^0-9]+$", "", number)
-        print user, repo, number, kind
-      }')"
-
-    # Skip if parsing failed
-    [[ -z "$user" || -z "$repo" || -z "$number" || -z "$kind" ]] && continue
-
-    # Create cache key from user/repo/kind/number
-    cache_file="outputs/$github_username/url_cache/${user}_${repo}_${kind}_${number}.txt"
-
-    if [[ -f "$cache_file" ]]; then
-      # Use cached title
-      title="$(cat "$cache_file")"
-      ((cached_count++)) || true
-      debug "Using cached title for $user/$repo#$number ($kind)"
-    else
-      # Fetch and cache title
-      if [[ "$kind" == "issues" ]]; then
-        debug "Resolving $user/$repo#$number (issue)..."
-        title="$(gh issue view "$number" --repo "$user/$repo" --json title --jq '.title')"
-      elif [[ "$kind" == "pull" ]]; then
-        debug "Resolving $user/$repo#$number (PR)..."
-        title="$(gh pr view "$number" --repo "$user/$repo" --json title --jq '.title')"
-      fi
-      echo "$title" > "$cache_file"
-      ((fetched_count++)) || true
-    fi
-
-    "$sed_command" -i'' -e "s|https://github.com/$user/$repo/$kind/$number|$user/$repo: $title|g" \
-      "outputs/$github_username/$year.md"
-  done <<< "$urls_to_process"
-  pass "Resolved $url_count GitHub URLs (fetched: $fetched_count, cached: $cached_count)"
-else
-  info "No GitHub URLs found to resolve"
-fi
-pass "Done! Final output: outputs/$github_username/$year.md"
+# Output ISO timestamp at script end
+>&2 echo "END: $(date -Iseconds)"
