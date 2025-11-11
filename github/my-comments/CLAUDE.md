@@ -36,22 +36,41 @@ This is **Phase 1** (data collection) of a two-phase self-review process:
 
 ## Configuration
 
-**Edit these three values in the script before running:**
-
-1. **Line 6** - `year=2024`
-   - Set to the year you want to collect data for
-
-2. **Line 10** - `-R glg/devops-meetings`
-   - Set to your organization's standup/meetings repository
-   - Format: `owner/repo`
-
-3. **Line 35** - `.author.login=="GITHUBUSERNAME"`
-   - Replace `GITHUBUSERNAME` with your actual GitHub username
+All configuration is passed via command-line flags. Parameters can be specified in any order.
 
 ## Usage
 
 ```bash
-./pull-my-comments.bash
+./pull-my-comments.bash -r <repo> -u <username> -l <label> [-y <year>] [-i <limit>] [-p <process_limit>] [-s <sed_cmd>]
+```
+
+**Parameters:**
+
+**Required:**
+- **`-r <repo>`** - Organization's standup/meetings repository (format: `owner/repo`)
+- **`-u <username>`** - Your GitHub username
+- **`-l <label>`** - GitHub issue label to filter on
+
+**Optional:**
+- **`-y <year>`** - Year to collect data for (default: current year)
+- **`-i <limit>`** - Maximum issues to fetch (default: `300`)
+- **`-p <limit>`** - Maximum issues to process (default: `200`)
+- **`-s <cmd>`** - Sed command to use: `sed` or `gsed` (default: `sed`)
+
+**Examples:**
+
+```bash
+# Minimal - uses all defaults
+./pull-my-comments.bash -r glg/devops-meetings -u myusername -l Standup
+
+# Specify year
+./pull-my-comments.bash -r glg/devops-meetings -u myusername -l Standup -y 2024
+
+# macOS with gsed, custom limits
+./pull-my-comments.bash -r glg/devops-meetings -u myusername -l Standup -s gsed -i 500 -p 300
+
+# Parameters in any order
+./pull-my-comments.bash -u myusername -l Standup -r glg/devops-meetings -y 2023
 ```
 
 The script will:
@@ -62,10 +81,12 @@ The script will:
 
 ## Output Files
 
-- `issues.txt` - Cached list of standup issues
-- `$year/issues/*.json` - Individual issue data files (one per issue)
-- `$year.md` - **Final compiled markdown document** (e.g., `2024.md`)
-- `before.md` - Backup created before URL resolution
+All output files are written to the `outputs/<username>/` directory:
+
+- `outputs/<username>/issues.txt` - Cached list of standup issues
+- `outputs/<username>/$year/issues/*.json` - Individual issue data files (one per issue)
+- `outputs/<username>/$year.md` - **Final compiled markdown document** (e.g., `2025.md`)
+- `outputs/<username>/before.md` - Backup created before URL resolution
 
 ## How It Works
 
@@ -97,10 +118,9 @@ user/repo: Issue Title Here
 
 ## Limitations
 
-- Requires manual editing of configuration variables
-- Limited to 300 issues and 200 issue details per run
+- Requires all parameters to be passed as command-line arguments
 - Organization/formatting of output for HR review is a separate step
-- Platform-specific sed command (`gsed` on macOS may need adjustment for Linux)
+- Platform-specific sed command must be specified (gsed/sed)
 
 ## Example Output Format
 
