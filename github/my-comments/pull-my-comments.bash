@@ -293,6 +293,89 @@ done < <(jq -c '.[]' "$involved_cache")
 
 pass "Involved issues - Downloaded: $involved_downloaded, Skipped (cached): $involved_skipped"
 
+# Phase 2d: Discover involved PRs (assigned or authored) from org.
+# Queries GitHub for PRs where user was assigned or authored,
+# filtering by created/closed dates. Caches results to avoid
+# repeated API calls.
+involved_prs_cache="outputs/$github_username/$year/involved-prs.json"
+
+if [[ ! -f "$involved_prs_cache" ]]; then
+  info "Fetching involved PRs (assigned/authored) from org: $org..."
+
+  # Fetch 4 queries: assigned+created, assigned+closed, author+created, author+closed
+  # Combine and deduplicate by URL
+  {
+    gh search prs --assignee "$github_username" --owner "$org" --created "$year-01-01..$year-12-31" --limit 1000 --json number,title,url,createdAt,closedAt,repository,state,body 2>/dev/null || echo "[]"
+    gh search prs --assignee "$github_username" --owner "$org" --closed "$year-01-01..$year-12-31" --limit 1000 --json number,title,url,createdAt,closedAt,repository,state,body 2>/dev/null || echo "[]"
+    gh search prs --author "$github_username" --owner "$org" --created "$year-01-01..$year-12-31" --limit 1000 --json number,title,url,createdAt,closedAt,repository,state,body 2>/dev/null || echo "[]"
+    gh search prs --author "$github_username" --owner "$org" --closed "$year-01-01..$year-12-31" --limit 1000 --json number,title,url,createdAt,closedAt,repository,state,body 2>/dev/null || echo "[]"
+  } | jq -s 'add | unique_by(.url)' > "$involved_prs_cache"
+
+  pass "Found $(jq 'length' "$involved_prs_cache") involved PRs"
+else
+  info "Using cached involved PRs ($(jq 'length' "$involved_prs_cache") PRs)"
+fi
+
+# Phase 2e: Download involved PR details and determine participation type.
+# Stores in separate directory with repo-namespaced filenames.
+mkdir -p "outputs/$github_username/$year/involved-prs"
+
+info "Processing involved PRs..."
+check_rate_limit
+prs_downloaded=0
+prs_skipped=0
+
+while read -r pr_json; do
+  # Extract repo owner and name from URL (more reliable than repository object)
+  pr_url="$(echo "$pr_json" | jq -r '.url')"
+  repo_owner="$(echo "$pr_url" | cut -d'/' -f4)"
+  repo_name="$(echo "$pr_url" | cut -d'/' -f5)"
+  pr_num="$(echo "$pr_json" | jq -r '.number')"
+  cache_file="outputs/$github_username/$year/involved-prs/${repo_owner}_${repo_name}_${pr_num}.json"
+
+  if [[ -f "$cache_file" ]]; then
+    prs_skipped=$((prs_skipped + 1))
+    continue
+  fi
+
+  # Check rate limit every 10 downloads
+  if [[ $((prs_downloaded % 10)) -eq 0 && "$prs_downloaded" -gt 0 ]]; then
+    check_rate_limit
+  fi
+
+  debug "Downloading involved PR $repo_owner/$repo_name#$pr_num..."
+  prs_downloaded=$((prs_downloaded + 1))
+
+  # Fetch full PR details to determine participation type
+  full_pr="$(gh pr view "$pr_num" --repo "$repo_owner/$repo_name" --json number,title,url,createdAt,closedAt,state,body,author,assignees 2>/dev/null || echo '{}')"
+
+  # Skip if fetch failed (empty object or missing required fields)
+  if [[ "$(echo "$full_pr" | jq -r '.number // empty')" == "" ]]; then
+    debug "Skipping $repo_owner/$repo_name#$pr_num (fetch failed)"
+    prs_downloaded=$((prs_downloaded - 1))
+    continue
+  fi
+
+  # Determine participation type: Assigned, Author, or both
+  is_author="$(echo "$full_pr" | jq -r --arg user "$github_username" '.author.login == $user')"
+  is_assigned="$(echo "$full_pr" | jq -r --arg user "$github_username" '[.assignees[].login] | contains([$user])')"
+
+  if [[ "$is_author" == "true" && "$is_assigned" == "true" ]]; then
+    participation="Assigned+Author"
+  elif [[ "$is_author" == "true" ]]; then
+    participation="Author"
+  elif [[ "$is_assigned" == "true" ]]; then
+    participation="Assigned"
+  else
+    participation="Involved"
+  fi
+
+  # Add participation type to JSON and save
+  echo "$full_pr" | jq --arg part "$participation" '. + {participation: $part}' > "$cache_file"
+done < <(jq -c '.[]' "$involved_prs_cache")
+
+pass "Involved PRs - Downloaded: $prs_downloaded, Skipped (cached): $prs_skipped"
+
 pass "Done! All data cached in outputs/$github_username/$year/"
 
 # Output ISO timestamp at script end
