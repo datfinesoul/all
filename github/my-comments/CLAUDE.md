@@ -1,12 +1,12 @@
-# GitHub Standup Comments Collector
+# GitHub Activity Collector for Self-Review
 
 ## Overview
 
-`pull-my-comments.bash` is a bash script that collects your GitHub standup comments from an organization's meetings repository and compiles them into a markdown document for employee self-review purposes.
+`pull-my-comments.bash` is a bash script that collects your GitHub activity from an organization, including standup comments and issue involvement (assigned/authored), and compiles them into a date-organized markdown document for employee self-review purposes.
 
 ## Purpose
 
-This script automates the extraction of your contributions from GitHub standup issues, making it easier to prepare annual performance reviews by gathering a year's worth of your activity, comments, and referenced work.
+This script automates the extraction of your contributions across GitHub, making it easier to prepare annual performance reviews by gathering a year's worth of your standup comments and issue involvement, organized chronologically by date.
 
 ## Workflow Context
 
@@ -16,12 +16,13 @@ This is **Phase 1** (data collection) of a two-phase self-review process:
 
 ## Key Features
 
-- Fetches issues labeled "Standup" from configurable GitHub repository
-- Downloads issue details with all comments as JSON
-- Filters comments to only those authored by specified GitHub user
-- Resolves GitHub issue/PR URLs to human-readable titles
-- Caches downloaded data to avoid redundant API calls
-- Generates structured markdown output organized by issue
+- **Standup Comments**: Fetches issues labeled "Standup" from configurable GitHub repository and extracts your comments
+- **Issue Involvement**: Discovers issues org-wide where you were assigned or the author
+- **Date Organization**: Compiles activity chronologically with separate Standup and Involvement sections per date
+- **Participation Tracking**: Marks issues with participation type: [Assigned], [Author], or [Assigned+Author]
+- **Smart Caching**: Caches all downloaded data to avoid redundant API calls and respect rate limits
+- **URL Resolution**: Resolves GitHub issue/PR URLs to human-readable titles
+- **Separate Cache Directories**: Standup and involved issues stored separately for easier management
 
 ## Prerequisites
 
@@ -77,33 +78,59 @@ All configuration is passed via command-line flags. Parameters can be specified 
 ```
 
 The script will:
-1. Fetch list of standup issues for the configured year
-2. Download individual issue details (skips already downloaded)
-3. Extract your comments and compile into markdown
-4. Resolve any GitHub URLs to readable titles
+1. Fetch list of standup issues from the specified repository
+2. Discover assigned/authored issues org-wide (extracts org from repo parameter)
+3. Download individual issue details for both standup and involved issues
+4. Extract your comments from standup issues and determine participation type for involved issues
+5. Compile into date-organized markdown with separate Standup and Involvement sections
+6. Resolve any GitHub URLs to readable titles
 
 ## Output Files
 
 All output files are written to the `outputs/<username>/` directory:
 
+**Standup Issue Cache:**
 - `outputs/<username>/issues.txt` - Cached list of standup issues
-- `outputs/<username>/$year/issues/*.json` - Individual issue data files (one per issue)
+- `outputs/<username>/$year/standup/*.json` - Individual standup issue data files
+
+**Involved Issues Cache:**
+- `outputs/<username>/involved-issues-$year.json` - Cached list of assigned/authored issues
+- `outputs/<username>/$year/involved-issues/owner_repo_123.json` - Individual involved issue data with participation type
+
+**Other Files:**
 - `outputs/<username>/url_cache/*.txt` - Cached GitHub issue/PR titles for URL resolution
 - `outputs/<username>/$year.md` - **Final compiled markdown document** (e.g., `2025.md`)
 - `outputs/<username>/before.md` - Backup created before URL resolution
 
 ## How It Works
 
-### Phase 1: Issue Discovery
-Queries GitHub for all issues labeled "Standup" matching the configured year, limited to 300 results.
+### Phase 1: Standup Issue Discovery
+Queries GitHub for all issues labeled with the specified label (e.g., "Standup") from the configured repository, matching the configured year.
 
-### Phase 2: Issue Detail Extraction
-Downloads full issue data including all comments as JSON. Only fetches issues not already cached locally. Processes up to 200 issues.
+### Phase 2: Standup Issue Detail Extraction
+Downloads full issue data including all comments as JSON. Only fetches issues not already cached locally.
 
-### Phase 3: Comment Filtering & Formatting
-Parses JSON files to extract:
-- Issue titles (formatted as markdown headers)
-- Your comment bodies (filtered by GitHub username)
+### Phase 2b: Involved Issues Discovery
+Extracts organization from repo parameter and runs 4 queries:
+- Assigned to you + created in year
+- Assigned to you + closed in year
+- Authored by you + created in year
+- Authored by you + closed in year
+
+Combines and deduplicates results by URL.
+
+### Phase 2c: Involved Issue Detail Extraction
+Downloads full issue details and determines participation type:
+- **[Assigned]**: You are an assignee
+- **[Author]**: You authored the issue
+- **[Assigned+Author]**: Both assigned and author
+- **[Involved]**: Other participation (fallback)
+
+### Phase 3: Date-Organized Compilation
+Groups all activity by date and generates markdown:
+- **Standup sections**: Extract date from issue title, include your comments
+- **Involvement sections**: Use closed date (preferred) or created date, include issue summary
+- Sorts chronologically with date headers
 
 ### Phase 4: URL Resolution
 Scans generated markdown for GitHub issue/PR URLs and replaces them with formatted titles:
@@ -140,36 +167,60 @@ Use `cache-clear.bash` to view and manage cached data:
 ./cache-clear.bash -u <username>
 
 # Clear specific caches
-./cache-clear.bash -u <username> -i  # Clear issue list
-./cache-clear.bash -u <username> -j  # Clear JSON details
+./cache-clear.bash -u <username> -i  # Clear standup issue list
+./cache-clear.bash -u <username> -j  # Clear JSON details (standup + involved)
+./cache-clear.bash -u <username> -v  # Clear involved issues list
 ./cache-clear.bash -u <username> -c  # Clear URL titles
 
 # Clear multiple caches
-./cache-clear.bash -u <username> -i -c  # Clear issues and URLs
+./cache-clear.bash -u <username> -i -v  # Clear all list caches
 
 # Clear everything
 ./cache-clear.bash -u <username> -a
 ```
 
 **Cache Types:**
-- **Issue list** (`-i`): The initial list of issues fetched from GitHub
-- **JSON details** (`-j`): Full issue data including all comments
+- **Standup issue list** (`-i`): The initial list of standup issues from the repository
+- **JSON details** (`-j`): Full issue data for both standup and involved issues
+- **Involved issues list** (`-v`): The list of assigned/authored issues from org-wide search
 - **URL titles** (`-c`): Cached titles for GitHub issue/PR URL resolution
 
 **Why clear cache:**
-- Issue list: When new issues are added to the repository
-- JSON details: When comments are updated or added to existing issues
+- Standup issue list: When new standup issues are added to the repository
+- JSON details: When comments/issues are updated
+- Involved issues list: When you're assigned new issues or author new issues
 - URL titles: When issue/PR titles are changed (rare)
 
 ## Example Output Format
 
 ```markdown
-### Weekly Standup - Jan 8, 2024
+## 2024-01-08
+
+### Standup
+
+**Weekly Standup - Jan 8, 2024**
 Worked on migrating S3 state backend. Completed PR #456 for infrastructure updates.
 Referenced: user/repo: Fix terraform state locking issue
 
-### Weekly Standup - Jan 15, 2024
+### Involvement
+
+**[Assigned] glg/platform#123: Fix authentication timeout**
+Updated authentication service to handle session timeouts more gracefully. Added retry logic and improved error messaging.
+
+**[Author] glg/infrastructure#456: Migrate S3 state backend**
+Migrated Terraform state from local to S3 backend with DynamoDB locking for team collaboration.
+
+## 2024-01-15
+
+### Standup
+
+**Weekly Standup - Jan 15, 2024**
 Implemented new CI/CD pipeline for automated deployments.
+
+### Involvement
+
+**[Assigned+Author] glg/devops#789: Automate deployment pipeline**
+Created GitHub Actions workflow for automated testing and deployment to staging environment.
 ```
 
 ## Development Guidelines
