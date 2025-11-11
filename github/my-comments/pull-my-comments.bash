@@ -159,9 +159,27 @@ info "Processing up to $issue_process_limit standup issues..."
 check_rate_limit
 downloaded=0
 skipped=0
-while read -r issue_id; do
+
+# Extract issue IDs to process - use temp file to avoid pipefail issues
+temp_issues="outputs/$github_username/temp-issues-$$.txt"
+head -n"$issue_process_limit" "outputs/$github_username/issues.txt" > "$temp_issues"
+
+# Process directly from file
+iteration=0
+while read -r issue_id _rest; do
+  iteration=$((iteration + 1))
+
+  # Progress indicator every 20 issues
+  if [[ $((iteration % 20)) -eq 0 ]]; then
+    info "Processed $iteration issues so far (downloaded: $downloaded, skipped: $skipped)"
+  fi
+
+  if [[ -z "$issue_id" ]]; then
+    continue
+  fi
+
   if [[ -f "outputs/$github_username/$year/standup/$issue_id.json" ]]; then
-    ((skipped++))
+    skipped=$((skipped + 1))
     continue
   fi
 
@@ -171,13 +189,14 @@ while read -r issue_id; do
   fi
 
   debug "Downloading standup issue $issue_id..."
-  ((downloaded++))
+  downloaded=$((downloaded + 1))
   gh -R "$repo" issue view "${issue_id}" \
     --comments \
     --json comments \
     --json title \
-    >> "outputs/$github_username/$year/standup/$issue_id.json"
-done < <(head -n"$issue_process_limit" "outputs/$github_username/issues.txt" | awk '{print $1}')
+    > "outputs/$github_username/$year/standup/$issue_id.json"
+done < "$temp_issues"
+rm -f "$temp_issues"
 pass "Standup issues - Downloaded: $downloaded, Skipped (cached): $skipped"
 
 # Phase 2b: Discover involved issues (assigned or authored) from org.
@@ -222,7 +241,7 @@ while read -r issue_json; do
   cache_file="outputs/$github_username/$year/involved-issues/${repo_owner}_${repo_name}_${issue_num}.json"
 
   if [[ -f "$cache_file" ]]; then
-    ((involved_skipped++))
+    involved_skipped=$((involved_skipped + 1))
     continue
   fi
 
@@ -232,7 +251,7 @@ while read -r issue_json; do
   fi
 
   debug "Downloading involved issue $repo_owner/$repo_name#$issue_num..."
-  ((involved_downloaded++))
+  involved_downloaded=$((involved_downloaded + 1))
 
   # Fetch full issue details to determine participation type
   full_issue="$(gh issue view "$issue_num" --repo "$repo_owner/$repo_name" --json number,title,url,createdAt,closedAt,state,body,author,assignees 2>/dev/null || echo '{}')"
@@ -240,7 +259,7 @@ while read -r issue_json; do
   # Skip if fetch failed (empty object or missing required fields)
   if [[ "$(echo "$full_issue" | jq -r '.number // empty')" == "" ]]; then
     debug "Skipping $repo_owner/$repo_name#$issue_num (fetch failed)"
-    ((involved_downloaded--))
+    involved_downloaded=$((involved_downloaded - 1))
     continue
   fi
 
@@ -278,9 +297,23 @@ if compgen -G "outputs/$github_username/$year/standup/"*.json > /dev/null; then
   for standup_file in "outputs/$github_username/$year/standup/"*.json; do
     title="$(jq -r '.title' "$standup_file")"
 
-    # Extract date from standup title (assuming format like "Weekly Standup - Jan 8, 2024")
-    # Try to parse various date formats and convert to YYYY-MM-DD
-    standup_date="$(echo "$title" | grep -oE '[A-Za-z]+ [0-9]+, [0-9]{4}' | head -1 | xargs -I {} date -d "{}" +%Y-%m-%d 2>/dev/null || echo "unknown")"
+    # Extract date from standup title - try multiple formats:
+    # "November 12th 2024", "Jan 8, 2024", "January 8 2024", etc.
+    standup_date="unknown"
+
+    # Try format: "Month DDth YYYY" or "Month DD YYYY"
+    date_str="$(echo "$title" | grep -oE '[A-Za-z]+ [0-9]{1,2}(st|nd|rd|th)? [0-9]{4}' | head -1 | sed 's/\(st\|nd\|rd\|th\) / /' || true)"
+    if [[ -n "$date_str" ]]; then
+      standup_date="$(date -d "$date_str" +%Y-%m-%d 2>/dev/null || echo "unknown")"
+    fi
+
+    # Try format: "Month DD, YYYY" if first attempt failed
+    if [[ "$standup_date" == "unknown" ]]; then
+      date_str="$(echo "$title" | grep -oE '[A-Za-z]+ [0-9]{1,2}, [0-9]{4}' | head -1 || true)"
+      if [[ -n "$date_str" ]]; then
+        standup_date="$(date -d "$date_str" +%Y-%m-%d 2>/dev/null || echo "unknown")"
+      fi
+    fi
 
     # Extract user's comments
     comments="$(jq -r '.comments[] | select(.author.login=="'"$github_username"'") | .body' "$standup_file")"
@@ -386,41 +419,53 @@ mkdir -p "outputs/$github_username/url_cache"
 url_count=0
 cached_count=0
 fetched_count=0
-while read -r line; do
-  ((url_count++)) || true
-  IFS=$' ' read -r user repo number kind <<< "$(echo "$line" | awk -F'/' '
-    /https:\/\/github.com\/.*\/.*\/(issues|pull)\/[0-9]+/ {
-      user=$4
-      repo=$5
-      kind=$6
-      number=$7
-      sub("[^0-9]+$", "", number)
-      print user, repo, number, kind
-    }')"
 
-  # Create cache key from user/repo/kind/number
-  cache_file="outputs/$github_username/url_cache/${user}_${repo}_${kind}_${number}.txt"
+# Extract URLs to process (use || true to prevent grep failure on no matches)
+urls_to_process="$(grep 'github.com\/.*issues\|pull' "outputs/$github_username/$year.md" || true)"
 
-  if [[ -f "$cache_file" ]]; then
-    # Use cached title
-    title="$(cat "$cache_file")"
-    ((cached_count++)) || true
-    debug "Using cached title for $user/$repo#$number ($kind)"
-  else
-    # Fetch and cache title
-    if [[ "$kind" == "issues" ]]; then
-      debug "Resolving $user/$repo#$number (issue)..."
-      title="$(gh issue view "$number" --repo "$user/$repo" --json title --jq '.title')"
-    elif [[ "$kind" == "pull" ]]; then
-      debug "Resolving $user/$repo#$number (PR)..."
-      title="$(gh pr view "$number" --repo "$user/$repo" --json title --jq '.title')"
+if [[ -n "$urls_to_process" ]]; then
+  while read -r line; do
+    [[ -z "$line" ]] && continue
+    ((url_count++)) || true
+    IFS=$' ' read -r user repo number kind <<< "$(echo "$line" | awk -F'/' '
+      /https:\/\/github.com\/.*\/.*\/(issues|pull)\/[0-9]+/ {
+        user=$4
+        repo=$5
+        kind=$6
+        number=$7
+        sub("[^0-9]+$", "", number)
+        print user, repo, number, kind
+      }')"
+
+    # Skip if parsing failed
+    [[ -z "$user" || -z "$repo" || -z "$number" || -z "$kind" ]] && continue
+
+    # Create cache key from user/repo/kind/number
+    cache_file="outputs/$github_username/url_cache/${user}_${repo}_${kind}_${number}.txt"
+
+    if [[ -f "$cache_file" ]]; then
+      # Use cached title
+      title="$(cat "$cache_file")"
+      ((cached_count++)) || true
+      debug "Using cached title for $user/$repo#$number ($kind)"
+    else
+      # Fetch and cache title
+      if [[ "$kind" == "issues" ]]; then
+        debug "Resolving $user/$repo#$number (issue)..."
+        title="$(gh issue view "$number" --repo "$user/$repo" --json title --jq '.title')"
+      elif [[ "$kind" == "pull" ]]; then
+        debug "Resolving $user/$repo#$number (PR)..."
+        title="$(gh pr view "$number" --repo "$user/$repo" --json title --jq '.title')"
+      fi
+      echo "$title" > "$cache_file"
+      ((fetched_count++)) || true
     fi
-    echo "$title" > "$cache_file"
-    ((fetched_count++)) || true
-  fi
 
-  "$sed_command" -i'' -e "s|https://github.com/$user/$repo/$kind/$number|$user/$repo: $title|g" \
-    "outputs/$github_username/$year.md"
-done <<< "$(<"outputs/$github_username/$year.md" grep 'github.com\/.*issues\|pull')"
-pass "Resolved $url_count GitHub URLs (fetched: $fetched_count, cached: $cached_count)"
+    "$sed_command" -i'' -e "s|https://github.com/$user/$repo/$kind/$number|$user/$repo: $title|g" \
+      "outputs/$github_username/$year.md"
+  done <<< "$urls_to_process"
+  pass "Resolved $url_count GitHub URLs (fetched: $fetched_count, cached: $cached_count)"
+else
+  info "No GitHub URLs found to resolve"
+fi
 pass "Done! Final output: outputs/$github_username/$year.md"
