@@ -146,8 +146,10 @@ involved_downloaded=0
 involved_skipped=0
 
 jq -c '.[]' "$involved_cache" | while read -r issue_json; do
-  repo_name="$(echo "$issue_json" | jq -r '.repository.name')"
-  repo_owner="$(echo "$issue_json" | jq -r '.repository.owner.login')"
+  # Extract repo owner and name from URL (more reliable than repository object)
+  issue_url="$(echo "$issue_json" | jq -r '.url')"
+  repo_owner="$(echo "$issue_url" | cut -d'/' -f4)"
+  repo_name="$(echo "$issue_url" | cut -d'/' -f5)"
   issue_num="$(echo "$issue_json" | jq -r '.number')"
   cache_file="outputs/$github_username/$year/involved-issues/${repo_owner}_${repo_name}_${issue_num}.json"
 
