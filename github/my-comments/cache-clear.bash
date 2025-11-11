@@ -3,6 +3,36 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+# Color definitions for logging
+red="$(tput setaf 1)"
+green="$(tput setaf 2)"
+yellow="$(tput setaf 3)"
+cyan="$(tput setaf 6)"
+white="$(tput setaf 7)"
+gray="$(tput dim)$(tput setaf 7)"
+magenta="$(tput setaf 5)"
+reset="$(tput sgr0)"
+
+# Logging functions with color support
+custom_log() {
+    local prefix="$1"
+    local postfix="$2"
+    shift 2
+    if [[ -p /dev/stdin && "$#" -eq 0 ]]; then
+        while IFS= read -r line || [ -n "$line" ]; do
+            >&2 echo -e "${prefix}${line}${postfix}"
+        done
+    else
+        >&2 echo -e "${prefix}$*${postfix}"
+    fi
+}
+plain() { custom_log "" "" "$@"; }
+info() { custom_log "[i] " "" "$@"; }
+debug() { custom_log "[${gray}D${reset}]${gray} " "${reset}" "$@"; }
+pass() { custom_log "[${green}✔${reset}]${green} " "${reset}" "$@"; }
+warn() { custom_log "[${magenta}!${reset}]${magenta} " "${reset}" "$@"; }
+fail() { custom_log "[${red}✘${reset}]${red} " "${reset}" "$@"; }
+
 # Cache management script for pull-my-comments data
 # Displays cache statistics and optionally clears cached data
 
@@ -30,26 +60,26 @@ done
 
 # Validation: username is required
 if [[ -z "$username" ]]; then
-  >&2 echo "[x] Error: -u username required"
-  >&2 echo ""
-  >&2 echo "Usage: $0 -u <username> [-i] [-j] [-c] [-v] [-a]"
-  >&2 echo ""
-  >&2 echo "Options:"
-  >&2 echo "  -u <username>  GitHub username (required)"
-  >&2 echo "  -i             Clear standup issue list cache (issues.txt)"
-  >&2 echo "  -j             Clear JSON issue details cache (standup + involved)"
-  >&2 echo "  -c             Clear URL title cache"
-  >&2 echo "  -v             Clear involved issues list cache (involved-issues-*.json)"
-  >&2 echo "  -a             Clear all caches"
-  >&2 echo ""
-  >&2 echo "Without options, displays cache statistics only"
+  fail "Error: -u username required"
+  plain ""
+  plain "Usage: $0 -u <username> [-i] [-j] [-c] [-v] [-a]"
+  plain ""
+  plain "Options:"
+  plain "  -u <username>  GitHub username (required)"
+  plain "  -i             Clear standup issue list cache (issues.txt)"
+  plain "  -j             Clear JSON issue details cache (standup + involved)"
+  plain "  -c             Clear URL title cache"
+  plain "  -v             Clear involved issues list cache (involved-issues-*.json)"
+  plain "  -a             Clear all caches"
+  plain ""
+  plain "Without options, displays cache statistics only"
   exit 1
 fi
 
 # Check if output directory exists
 if [[ ! -d "outputs/$username" ]]; then
-  >&2 echo "[x] No cache found for user: $username"
-  >&2 echo "[i] Directory does not exist: outputs/$username"
+  fail "No cache found for user: $username"
+  info "Directory does not exist: outputs/$username"
   exit 1
 fi
 
@@ -121,35 +151,35 @@ fi
 url_size=$(get_size "outputs/$username/url_cache")
 
 # Display cache statistics
->&2 echo "[i] Cache statistics for user: $username"
->&2 echo ""
->&2 echo "  Standup issue list:     $(if $issues_exists; then echo "exists"; else echo "not found"; fi)"
->&2 echo "  Standup JSON details:   $standup_json_count files ($standup_json_size)"
->&2 echo "  Involved issues list:   $involved_list_count files"
->&2 echo "  Involved JSON details:  $involved_json_count files ($involved_json_size)"
->&2 echo "  URL title cache:        $url_count files ($url_size)"
->&2 echo ""
+info "Cache statistics for user: $username"
+plain ""
+plain "  Standup issue list:     $(if $issues_exists; then echo "exists"; else echo "not found"; fi)"
+plain "  Standup JSON details:   $standup_json_count files ($standup_json_size)"
+plain "  Involved issues list:   $involved_list_count files"
+plain "  Involved JSON details:  $involved_json_count files ($involved_json_size)"
+plain "  URL title cache:        $url_count files ($url_size)"
+plain ""
 
 # If show_only mode, exit here
 if $show_only; then
-  >&2 echo "[i] Use -i, -j, -v, -c, or -a flags to clear cache"
+  info "Use -i, -j, -v, -c, or -a flags to clear cache"
   exit 0
 fi
 
 # Clear caches based on flags
 if $clear_all; then
-  >&2 echo "[i] Clearing all caches for $username..."
+  warn "Clearing all caches for $username..."
   rm -rf "outputs/$username"
-  >&2 echo "[i] Removed: outputs/$username/"
+  pass "Removed: outputs/$username/"
   exit 0
 fi
 
 if $clear_issues; then
   if [[ -f "outputs/$username/issues.txt" ]]; then
     rm "outputs/$username/issues.txt"
-    >&2 echo "[i] Cleared issue list cache"
+    pass "Cleared issue list cache"
   else
-    >&2 echo "[i] No issue list cache to clear"
+    info "No issue list cache to clear"
   fi
 fi
 
@@ -166,28 +196,28 @@ if $clear_json; then
       find "outputs/$username" -type d -name "involved-issues" -exec rm -rf {} + 2>/dev/null || true
       ((total_cleared += involved_json_count)) || true
     fi
-    >&2 echo "[i] Cleared JSON details cache ($total_cleared files)"
+    pass "Cleared JSON details cache ($total_cleared files)"
   else
-    >&2 echo "[i] No JSON cache to clear"
+    info "No JSON cache to clear"
   fi
 fi
 
 if $clear_involved; then
   if [[ -d "outputs/$username" ]]; then
     cleared_count=$(find "outputs/$username" -maxdepth 1 -type f -name "involved-issues-*.json" -delete -print 2>/dev/null | wc -l | tr -d ' ')
-    >&2 echo "[i] Cleared involved issues list cache ($cleared_count files)"
+    pass "Cleared involved issues list cache ($cleared_count files)"
   else
-    >&2 echo "[i] No involved issues list cache to clear"
+    info "No involved issues list cache to clear"
   fi
 fi
 
 if $clear_urls; then
   if [[ -d "outputs/$username/url_cache" ]]; then
     rm -rf "outputs/$username/url_cache"
-    >&2 echo "[i] Cleared URL title cache ($url_count files)"
+    pass "Cleared URL title cache ($url_count files)"
   else
-    >&2 echo "[i] No URL cache to clear"
+    info "No URL cache to clear"
   fi
 fi
 
->&2 echo "[i] Cache clearing complete"
+pass "Cache clearing complete"

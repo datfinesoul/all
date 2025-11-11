@@ -3,6 +3,36 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+# Color definitions for logging
+red="$(tput setaf 1)"
+green="$(tput setaf 2)"
+yellow="$(tput setaf 3)"
+cyan="$(tput setaf 6)"
+white="$(tput setaf 7)"
+gray="$(tput dim)$(tput setaf 7)"
+magenta="$(tput setaf 5)"
+reset="$(tput sgr0)"
+
+# Logging functions with color support
+custom_log() {
+    local prefix="$1"
+    local postfix="$2"
+    shift 2
+    if [[ -p /dev/stdin && "$#" -eq 0 ]]; then
+        while IFS= read -r line || [ -n "$line" ]; do
+            >&2 echo -e "${prefix}${line}${postfix}"
+        done
+    else
+        >&2 echo -e "${prefix}$*${postfix}"
+    fi
+}
+plain() { custom_log "" "" "$@"; }
+info() { custom_log "[i] " "" "$@"; }
+debug() { custom_log "[${gray}D${reset}]${gray} " "${reset}" "$@"; }
+pass() { custom_log "[${green}✔${reset}]${green} " "${reset}" "$@"; }
+warn() { custom_log "[${magenta}!${reset}]${magenta} " "${reset}" "$@"; }
+fail() { custom_log "[${red}✘${reset}]${red} " "${reset}" "$@"; }
+
 # Configuration: Set sensible defaults for optional parameters.
 # Only repo, username, and label are required - everything else
 # adapts to your environment.
@@ -30,15 +60,15 @@ done
 
 # Validation: Ensure the three critical parameters are provided
 if [[ -z "$repo" ]]; then
-  >&2 echo "[x] Error: -r repo required (format: owner/repo)"
+  fail "Error: -r repo required (format: owner/repo)"
   exit 1
 fi
 if [[ -z "$github_username" ]]; then
-  >&2 echo "[x] Error: -u github_username required"
+  fail "Error: -u github_username required"
   exit 1
 fi
 if [[ -z "$issue_label" ]]; then
-  >&2 echo "[x] Error: -l issue_label required"
+  fail "Error: -l issue_label required"
   exit 1
 fi
 
@@ -50,21 +80,55 @@ if [[ "$sed_command" == "sed" ]]; then
   if ! sed --version 2>&1 | grep -q "GNU"; then
     # Not GNU sed - check if gsed is available
     if command -v gsed &> /dev/null; then
-      >&2 echo "[i] Using gsed instead of sed for GNU compatibility"
+      info "Using gsed instead of sed for GNU compatibility"
       sed_command="gsed"
     else
-      >&2 echo "[x] Error: GNU sed required. Install with: brew install gnu-sed"
-      >&2 echo "[x] Or specify sed command with: -s gsed"
+      fail "Error: GNU sed required. Install with: brew install gnu-sed"
+      fail "Or specify sed command with: -s gsed"
       exit 1
     fi
   fi
 elif [[ "$sed_command" == "gsed" ]]; then
   # User explicitly requested gsed - verify it exists
   if ! command -v gsed &> /dev/null; then
-    >&2 echo "[x] Error: gsed not found. Install with: brew install gnu-sed"
+    fail "Error: gsed not found. Install with: brew install gnu-sed"
     exit 1
   fi
 fi
+
+# Rate limit management: Check GitHub API rate limit and sleep
+# if approaching 80% usage to avoid hitting the limit.
+check_rate_limit() {
+  local limit remaining reset used
+
+  # Fetch rate limit info from GitHub API
+  local rate_info="$(gh api rate_limit 2>/dev/null || echo '{}')"
+
+  limit="$(echo "$rate_info" | jq -r '.resources.core.limit // 5000')"
+  remaining="$(echo "$rate_info" | jq -r '.resources.core.remaining // 5000')"
+  reset="$(echo "$rate_info" | jq -r '.resources.core.reset // 0')"
+  used="$(echo "$rate_info" | jq -r '.resources.core.used // 0')"
+
+  # Calculate usage percentage
+  local usage_pct=0
+  if [[ "$limit" -gt 0 ]]; then
+    usage_pct=$((used * 100 / limit))
+  fi
+
+  # If we're over 80% usage, sleep until reset
+  if [[ "$usage_pct" -ge 80 ]]; then
+    local now="$(date +%s)"
+    local sleep_seconds=$((reset - now + 60))  # Add 60s buffer
+
+    if [[ "$sleep_seconds" -gt 0 ]]; then
+      local reset_time="$(date -d "@$reset" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date -r "$reset" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "unknown")"
+      warn "Rate limit at ${usage_pct}% (${remaining}/${limit} remaining)"
+      warn "Sleeping ${sleep_seconds}s until reset at ${reset_time}..."
+      sleep "$sleep_seconds"
+      pass "Rate limit reset, resuming..."
+    fi
+  fi
+}
 
 # Setup: Create user-specific output directory for organizing
 # multiple users' data
@@ -73,7 +137,7 @@ mkdir -p "outputs/$github_username"
 # Phase 1: Discover all relevant issues from the repository.
 # Caches results to avoid repeated API calls when re-running.
 if [[ ! -f "outputs/$github_username/issues.txt" ]]; then
-  >&2 echo "[i] Fetching issue list from $repo..."
+  info "Fetching issue list from $repo..."
   gh \
     -R "$repo" issue list \
     --state all \
@@ -81,9 +145,9 @@ if [[ ! -f "outputs/$github_username/issues.txt" ]]; then
     --label "$issue_label" \
     --search "$year" \
     > "outputs/$github_username/issues.txt"
-  >&2 echo "[i] Found $(wc -l < "outputs/$github_username/issues.txt") issues"
+  pass "Found $(wc -l < "outputs/$github_username/issues.txt") issues"
 else
-  >&2 echo "[i] Using cached issue list ($(wc -l < "outputs/$github_username/issues.txt") issues)"
+  info "Using cached issue list ($(wc -l < "outputs/$github_username/issues.txt") issues)"
 fi
 
 mkdir -p "outputs/$github_username/$year/standup"
@@ -91,27 +155,30 @@ mkdir -p "outputs/$github_username/$year/standup"
 # Phase 2: Download detailed data for each issue including all
 # comments. Skips already-downloaded issues to enable incremental
 # updates and avoid rate limits.
->&2 echo "[i] Processing up to $issue_process_limit standup issues..."
+info "Processing up to $issue_process_limit standup issues..."
+check_rate_limit
 downloaded=0
 skipped=0
-cat "outputs/$github_username/issues.txt" \
-  | head -n"$issue_process_limit" \
-  | awk '{print $1}' \
-  | while read -r issue_id; do
-
+while read -r issue_id; do
   if [[ -f "outputs/$github_username/$year/standup/$issue_id.json" ]]; then
-    ((skipped++)) || true
+    ((skipped++))
     continue
   fi
-  >&2 echo "[d] Downloading standup issue $issue_id..."
-  ((downloaded++)) || true
+
+  # Check rate limit every 10 downloads
+  if [[ $((downloaded % 10)) -eq 0 && "$downloaded" -gt 0 ]]; then
+    check_rate_limit
+  fi
+
+  debug "Downloading standup issue $issue_id..."
+  ((downloaded++))
   gh -R "$repo" issue view "${issue_id}" \
     --comments \
     --json comments \
     --json title \
     >> "outputs/$github_username/$year/standup/$issue_id.json"
-done
->&2 echo "[i] Standup issues - Downloaded: $downloaded, Skipped (cached): $skipped"
+done < <(head -n"$issue_process_limit" "outputs/$github_username/issues.txt" | awk '{print $1}')
+pass "Standup issues - Downloaded: $downloaded, Skipped (cached): $skipped"
 
 # Phase 2b: Discover involved issues (assigned or authored) from org.
 # Queries GitHub for issues where user was assigned or authored,
@@ -121,7 +188,7 @@ org="$(echo "$repo" | cut -d/ -f1)"
 involved_cache="outputs/$github_username/involved-issues-$year.json"
 
 if [[ ! -f "$involved_cache" ]]; then
-  >&2 echo "[i] Fetching involved issues (assigned/authored) from org: $org..."
+  info "Fetching involved issues (assigned/authored) from org: $org..."
 
   # Fetch 4 queries: assigned+created, assigned+closed, author+created, author+closed
   # Combine and deduplicate by URL
@@ -132,20 +199,21 @@ if [[ ! -f "$involved_cache" ]]; then
     gh search issues --author "$github_username" --owner "$org" --closed "$year-01-01..$year-12-31" --limit 1000 --json number,title,url,createdAt,closedAt,repository,state,body 2>/dev/null || echo "[]"
   } | jq -s 'add | unique_by(.url)' > "$involved_cache"
 
-  >&2 echo "[i] Found $(jq 'length' "$involved_cache") involved issues"
+  pass "Found $(jq 'length' "$involved_cache") involved issues"
 else
-  >&2 echo "[i] Using cached involved issues ($(jq 'length' "$involved_cache") issues)"
+  info "Using cached involved issues ($(jq 'length' "$involved_cache") issues)"
 fi
 
 # Phase 2c: Download involved issue details and determine participation type.
 # Stores in separate directory with repo-namespaced filenames.
 mkdir -p "outputs/$github_username/$year/involved-issues"
 
->&2 echo "[i] Processing involved issues..."
+info "Processing involved issues..."
+check_rate_limit
 involved_downloaded=0
 involved_skipped=0
 
-jq -c '.[]' "$involved_cache" | while read -r issue_json; do
+while read -r issue_json; do
   # Extract repo owner and name from URL (more reliable than repository object)
   issue_url="$(echo "$issue_json" | jq -r '.url')"
   repo_owner="$(echo "$issue_url" | cut -d'/' -f4)"
@@ -154,15 +222,27 @@ jq -c '.[]' "$involved_cache" | while read -r issue_json; do
   cache_file="outputs/$github_username/$year/involved-issues/${repo_owner}_${repo_name}_${issue_num}.json"
 
   if [[ -f "$cache_file" ]]; then
-    ((involved_skipped++)) || true
+    ((involved_skipped++))
     continue
   fi
 
-  >&2 echo "[d] Downloading involved issue $repo_owner/$repo_name#$issue_num..."
-  ((involved_downloaded++)) || true
+  # Check rate limit every 10 downloads
+  if [[ $((involved_downloaded % 10)) -eq 0 && "$involved_downloaded" -gt 0 ]]; then
+    check_rate_limit
+  fi
+
+  debug "Downloading involved issue $repo_owner/$repo_name#$issue_num..."
+  ((involved_downloaded++))
 
   # Fetch full issue details to determine participation type
-  full_issue="$(gh issue view "$issue_num" --repo "$repo_owner/$repo_name" --json number,title,url,createdAt,closedAt,state,body,author,assignees)"
+  full_issue="$(gh issue view "$issue_num" --repo "$repo_owner/$repo_name" --json number,title,url,createdAt,closedAt,state,body,author,assignees 2>/dev/null || echo '{}')"
+
+  # Skip if fetch failed (empty object or missing required fields)
+  if [[ "$(echo "$full_issue" | jq -r '.number // empty')" == "" ]]; then
+    debug "Skipping $repo_owner/$repo_name#$issue_num (fetch failed)"
+    ((involved_downloaded--))
+    continue
+  fi
 
   # Determine participation type: Assigned, Author, or both
   is_author="$(echo "$full_issue" | jq -r --arg user "$github_username" '.author.login == $user')"
@@ -180,14 +260,14 @@ jq -c '.[]' "$involved_cache" | while read -r issue_json; do
 
   # Add participation type to JSON and save
   echo "$full_issue" | jq --arg part "$participation" '. + {participation: $part}' > "$cache_file"
-done
+done < <(jq -c '.[]' "$involved_cache")
 
->&2 echo "[i] Involved issues - Downloaded: $involved_downloaded, Skipped (cached): $involved_skipped"
+pass "Involved issues - Downloaded: $involved_downloaded, Skipped (cached): $involved_skipped"
 
 # Phase 3: Compile date-organized markdown with standup and
 # involvement sections. Groups by date (prefer closed, fallback
 # to created) and creates separate sections for each.
->&2 echo "[i] Compiling date-organized markdown..."
+info "Compiling date-organized markdown..."
 
 # Temporary file to collect all entries with dates
 temp_entries="outputs/$github_username/$year-temp-entries.txt"
@@ -292,12 +372,12 @@ BEGIN {
 ' > "outputs/$github_username/$year.md"
 
 rm -f "$temp_entries"
->&2 echo "[i] Created outputs/$github_username/$year.md"
+pass "Created outputs/$github_username/$year.md"
 
 # Phase 4: Enhance readability by replacing GitHub URLs with
 # human-readable titles. Makes it easier to understand referenced
 # work without clicking through to each link.
->&2 echo "[i] Resolving GitHub URLs to titles..."
+info "Resolving GitHub URLs to titles..."
 cp "outputs/$github_username/$year.md" "outputs/$github_username/before.md"
 
 # Create cache directory for URL title resolutions
@@ -325,14 +405,14 @@ while read -r line; do
     # Use cached title
     title="$(cat "$cache_file")"
     ((cached_count++)) || true
-    >&2 echo "[d] Using cached title for $user/$repo#$number ($kind)"
+    debug "Using cached title for $user/$repo#$number ($kind)"
   else
     # Fetch and cache title
     if [[ "$kind" == "issues" ]]; then
-      >&2 echo "[d] Resolving $user/$repo#$number (issue)..."
+      debug "Resolving $user/$repo#$number (issue)..."
       title="$(gh issue view "$number" --repo "$user/$repo" --json title --jq '.title')"
     elif [[ "$kind" == "pull" ]]; then
-      >&2 echo "[d] Resolving $user/$repo#$number (PR)..."
+      debug "Resolving $user/$repo#$number (PR)..."
       title="$(gh pr view "$number" --repo "$user/$repo" --json title --jq '.title')"
     fi
     echo "$title" > "$cache_file"
@@ -342,5 +422,5 @@ while read -r line; do
   "$sed_command" -i'' -e "s|https://github.com/$user/$repo/$kind/$number|$user/$repo: $title|g" \
     "outputs/$github_username/$year.md"
 done <<< "$(<"outputs/$github_username/$year.md" grep 'github.com\/.*issues\|pull')"
->&2 echo "[i] Resolved $url_count GitHub URLs (fetched: $fetched_count, cached: $cached_count)"
->&2 echo "[i] Done! Final output: outputs/$github_username/$year.md"
+pass "Resolved $url_count GitHub URLs (fetched: $fetched_count, cached: $cached_count)"
+pass "Done! Final output: outputs/$github_username/$year.md"
