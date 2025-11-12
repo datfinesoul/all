@@ -51,33 +51,33 @@ fail() { custom_log "[${red}✘${reset}]${red} " "${reset}" "$@"; }
 # Help text function
 show_help() {
   cat << EOF
-Usage: $(basename "$0") -r REPO -u USERNAME -l LABEL [-y YEAR] [-i LIMIT] [-s SED_CMD]
+${cyan}Usage:${reset} $(basename "$0") ${yellow}-r${reset} REPO ${yellow}-u${reset} USERNAME ${yellow}-l${reset} LABEL [${yellow}-y${reset} YEAR] [${yellow}-i${reset} LIMIT] [${yellow}-s${reset} SED_CMD]
 
-Collect GitHub activity (standup comments, issues, PRs) for self-review.
+${white}Collect GitHub activity (standup comments, issues, PRs) for self-review.${reset}
 
-Required arguments:
-  -r REPO        Repository for standup issues (format: owner/repo)
-  -u USERNAME    Your GitHub username
-  -l LABEL       Issue label to filter standup issues (e.g., "Standup")
+${green}Required arguments:${reset}
+  ${yellow}-r${reset} REPO        Repository for standup issues (format: ${cyan}owner/repo${reset})
+  ${yellow}-u${reset} USERNAME    Your GitHub username
+  ${yellow}-l${reset} LABEL       Issue label to filter standup issues (e.g., ${cyan}"Standup"${reset})
 
-Optional arguments:
-  -y YEAR        Year to collect data for (default: current year)
-  -i LIMIT       Maximum issues to fetch (default: 300)
-  -s SED_CMD     Sed command to use: sed or gsed (default: sed, auto-detects GNU sed)
+${magenta}Optional arguments:${reset}
+  ${yellow}-y${reset} YEAR        Year to collect data for (default: ${gray}current year${reset})
+  ${yellow}-i${reset} LIMIT       Maximum issues to fetch (default: ${gray}300${reset})
+  ${yellow}-s${reset} SED_CMD     Sed command to use: sed or gsed (default: ${gray}sed, auto-detects GNU sed${reset})
 
-Examples:
-  $(basename "$0") -r glg/devops-meetings -u myuser -l Standup
-  $(basename "$0") -r glg/devops-meetings -u myuser -l Standup -y 2024
-  $(basename "$0") -r glg/devops-meetings -u myuser -l Standup -s gsed -i 500
+${cyan}Examples:${reset}
+  ${gray}\$${reset} $(basename "$0") ${yellow}-r${reset} glg/devops-meetings ${yellow}-u${reset} myuser ${yellow}-l${reset} Standup
+  ${gray}\$${reset} $(basename "$0") ${yellow}-r${reset} glg/devops-meetings ${yellow}-u${reset} myuser ${yellow}-l${reset} Standup ${yellow}-y${reset} 2024
+  ${gray}\$${reset} $(basename "$0") ${yellow}-r${reset} glg/devops-meetings ${yellow}-u${reset} myuser ${yellow}-l${reset} Standup ${yellow}-s${reset} gsed ${yellow}-i${reset} 500
 
-Output:
-  outputs/<username>/<year>/standup-issues_*.json          - Cached standup issue list
-  outputs/<username>/<year>/standup/*.json                 - Individual standup issues with comments
-  outputs/<username>/<year>/involved-issues.json           - Cached involved issue list
-  outputs/<username>/<year>/involved-issues/*.json         - Individual involved issues with comments
-  outputs/<username>/<year>/involved-prs.json              - Cached involved PR list
-  outputs/<username>/<year>/involved-prs/*.json            - Individual involved PRs with comments
-  outputs/<username>/<year>/stats.json                     - Statistics summary
+${cyan}Output:${reset}
+  ${gray}outputs/<username>/<year>/${reset}standup-issues_*.json          ${gray}- Cached standup issue list${reset}
+  ${gray}outputs/<username>/<year>/${reset}standup/*.json                 ${gray}- Individual standup issues with comments${reset}
+  ${gray}outputs/<username>/<year>/${reset}involved-issues.json           ${gray}- Cached involved issue list${reset}
+  ${gray}outputs/<username>/<year>/${reset}involved-issues/*.json         ${gray}- Individual involved issues with comments${reset}
+  ${gray}outputs/<username>/<year>/${reset}involved-prs.json              ${gray}- Cached involved PR list${reset}
+  ${gray}outputs/<username>/<year>/${reset}involved-prs/*.json            ${gray}- Individual involved PRs with comments${reset}
+  ${gray}outputs/<username>/<year>/${reset}stats.json                     ${gray}- Statistics summary${reset}
 EOF
   exit 0
 }
