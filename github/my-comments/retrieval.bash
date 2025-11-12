@@ -48,6 +48,40 @@ pass() { custom_log "[${green}✔${reset}]${green} " "${reset}" "$@"; }
 warn() { custom_log "[${magenta}!${reset}]${magenta} " "${reset}" "$@"; }
 fail() { custom_log "[${red}✘${reset}]${red} " "${reset}" "$@"; }
 
+# Help text function
+show_help() {
+  cat << EOF
+Usage: $(basename "$0") -r REPO -u USERNAME -l LABEL [-y YEAR] [-i LIMIT] [-s SED_CMD]
+
+Collect GitHub activity (standup comments, issues, PRs) for self-review.
+
+Required arguments:
+  -r REPO        Repository for standup issues (format: owner/repo)
+  -u USERNAME    Your GitHub username
+  -l LABEL       Issue label to filter standup issues (e.g., "Standup")
+
+Optional arguments:
+  -y YEAR        Year to collect data for (default: current year)
+  -i LIMIT       Maximum issues to fetch (default: 300)
+  -s SED_CMD     Sed command to use: sed or gsed (default: sed, auto-detects GNU sed)
+
+Examples:
+  $(basename "$0") -r glg/devops-meetings -u myuser -l Standup
+  $(basename "$0") -r glg/devops-meetings -u myuser -l Standup -y 2024
+  $(basename "$0") -r glg/devops-meetings -u myuser -l Standup -s gsed -i 500
+
+Output:
+  outputs/<username>/<year>/standup-issues_*.json          - Cached standup issue list
+  outputs/<username>/<year>/standup/*.json                 - Individual standup issues with comments
+  outputs/<username>/<year>/involved-issues.json           - Cached involved issue list
+  outputs/<username>/<year>/involved-issues/*.json         - Individual involved issues with comments
+  outputs/<username>/<year>/involved-prs.json              - Cached involved PR list
+  outputs/<username>/<year>/involved-prs/*.json            - Individual involved PRs with comments
+  outputs/<username>/<year>/stats.json                     - Statistics summary
+EOF
+  exit 0
+}
+
 # Configuration: Set sensible defaults for optional parameters.
 # Only repo, username, and label are required - everything else
 # adapts to your environment.
@@ -59,13 +93,21 @@ issue_limit=300
 sed_command="sed"
 
 # Parse command-line flags to override defaults
-while getopts "y:r:u:l:i:p:s:" opt; do
+while getopts "y:r:u:l:i:s:h-:" opt; do
   case "$opt" in
     y) year="$OPTARG" ;;
     r) repo="$OPTARG" ;;
     u) github_username="$OPTARG" ;;
     l) issue_label="$OPTARG" ;;
     i) issue_limit="$OPTARG" ;;
+    s) sed_command="$OPTARG" ;;
+    h) show_help ;;
+    -)
+      case "$OPTARG" in
+        help) show_help ;;
+        *) fail "Unknown option --$OPTARG"; exit 1 ;;
+      esac
+      ;;
     *) exit 1 ;;
   esac
 done
@@ -266,8 +308,8 @@ while read -r issue_json; do
   fi
 
   # Merge cached metadata with fetched comments
-  echo "$issue_json" | jq --argjson comments "$(echo "$full_issue" | jq '.comments')" \
-    '. + {comments: $comments}' > "$standup_json"
+  jq -n --argjson issue "$issue_json" --slurpfile comments <(echo "$full_issue" | jq '.comments') \
+    '$issue + {comments: $comments[0]}' > "$standup_json"
 done < <(jq -c '.[]' "$standup_issues_list")
 pass "Standup issues - Downloaded: $downloaded, Skipped (cached): $skipped"
 
@@ -279,8 +321,16 @@ info "Processing involved issues..."
 check_rate_limit
 involved_downloaded=0
 involved_skipped=0
+involved_iteration=0
 
 while read -r issue_json; do
+  involved_iteration=$((involved_iteration + 1))
+
+  # Progress indicator every 20 issues
+  if [[ $((involved_iteration % 20)) -eq 0 ]]; then
+    info "Processed $involved_iteration involved issues so far (downloaded: $involved_downloaded, skipped: $involved_skipped)"
+  fi
+
   # Extract repo owner and name from URL (more reliable than repository object)
   issue_url="$(echo "$issue_json" | jq -r '.url')"
   repo_owner="$(echo "$issue_url" | cut -d'/' -f4)"
@@ -326,8 +376,8 @@ while read -r issue_json; do
   fi
 
   # Merge cached metadata with fetched comments and add participation type
-  echo "$issue_json" | jq --argjson comments "$(echo "$full_issue" | jq '.comments')" --arg part "$participation" \
-    '. + {comments: $comments, participation: $part}' > "$cache_file"
+  jq -n --argjson issue "$issue_json" --slurpfile comments <(echo "$full_issue" | jq '.comments') --arg part "$participation" \
+    '$issue + {comments: $comments[0], participation: $part}' > "$cache_file"
 done < <(jq -c '.[]' "$involved_cache")
 
 pass "Involved issues - Downloaded: $involved_downloaded, Skipped (cached): $involved_skipped"
@@ -340,8 +390,16 @@ info "Processing involved PRs..."
 check_rate_limit
 prs_downloaded=0
 prs_skipped=0
+prs_iteration=0
 
 while read -r pr_json; do
+  prs_iteration=$((prs_iteration + 1))
+
+  # Progress indicator every 20 PRs
+  if [[ $((prs_iteration % 20)) -eq 0 ]]; then
+    info "Processed $prs_iteration involved PRs so far (downloaded: $prs_downloaded, skipped: $prs_skipped)"
+  fi
+
   # Extract repo owner and name from URL (more reliable than repository object)
   pr_url="$(echo "$pr_json" | jq -r '.url')"
   repo_owner="$(echo "$pr_url" | cut -d'/' -f4)"
@@ -387,13 +445,71 @@ while read -r pr_json; do
   fi
 
   # Merge cached metadata with fetched comments and add participation type
-  echo "$pr_json" | jq --argjson comments "$(echo "$full_pr" | jq '.comments')" --arg part "$participation" \
-    '. + {comments: $comments, participation: $part}' > "$cache_file"
+  jq -n --argjson pr "$pr_json" --slurpfile comments <(echo "$full_pr" | jq '.comments') --arg part "$participation" \
+    '$pr + {comments: $comments[0], participation: $part}' > "$cache_file"
 done < <(jq -c '.[]' "$involved_prs_cache")
 
 pass "Involved PRs - Downloaded: $prs_downloaded, Skipped (cached): $prs_skipped"
 
 pass "Done! All data cached in $year_dir/"
+
+# Generate statistics from cached data
+info "Generating statistics..."
+stats_file="$year_dir/stats.json"
+
+# Count standups with user comments
+total_standups="$(find "$standup_dir" -name "*.json" | wc -l | tr -d ' ')"
+standups_with_comments=0
+for standup_file in "$standup_dir"/*.json; do
+  [[ -f "$standup_file" ]] || continue
+  if jq -e --arg user "$github_username" '.comments[]? | select(.author.login == $user)' "$standup_file" >/dev/null 2>&1; then
+    standups_with_comments=$((standups_with_comments + 1))
+  fi
+done
+
+# Count issues by participation type
+issues_authored="$(find "$involved_issues_dir" -name "*.json" -exec jq -r 'select(.participation | contains("Author")) | .number' {} \; 2>/dev/null | wc -l | tr -d ' ')"
+issues_assigned="$(find "$involved_issues_dir" -name "*.json" -exec jq -r 'select(.participation | contains("Assigned")) | .number' {} \; 2>/dev/null | wc -l | tr -d ' ')"
+total_issues="$(find "$involved_issues_dir" -name "*.json" | wc -l | tr -d ' ')"
+
+# Count PRs by participation type
+prs_authored="$(find "$involved_prs_dir" -name "*.json" -exec jq -r 'select(.participation | contains("Author")) | .number' {} \; 2>/dev/null | wc -l | tr -d ' ')"
+prs_assigned="$(find "$involved_prs_dir" -name "*.json" -exec jq -r 'select(.participation | contains("Assigned")) | .number' {} \; 2>/dev/null | wc -l | tr -d ' ')"
+total_prs="$(find "$involved_prs_dir" -name "*.json" | wc -l | tr -d ' ')"
+
+# Write stats as JSON
+jq -n \
+  --arg year "$year" \
+  --arg user "$github_username" \
+  --argjson total_standups "$total_standups" \
+  --argjson standups_commented "$standups_with_comments" \
+  --argjson issues_total "$total_issues" \
+  --argjson issues_authored "$issues_authored" \
+  --argjson issues_assigned "$issues_assigned" \
+  --argjson prs_total "$total_prs" \
+  --argjson prs_authored "$prs_authored" \
+  --argjson prs_assigned "$prs_assigned" \
+  '{
+    year: $year,
+    user: $user,
+    standups: {
+      total: $total_standups,
+      commented: $standups_commented,
+      participation_rate: (if $total_standups > 0 then ($standups_commented / $total_standups * 100 | round) else 0 end)
+    },
+    issues: {
+      total: $issues_total,
+      authored: $issues_authored,
+      assigned: $issues_assigned
+    },
+    prs: {
+      total: $prs_total,
+      authored: $prs_authored,
+      assigned: $prs_assigned
+    }
+  }' > "$stats_file"
+
+pass "Statistics written to $stats_file"
 
 # Output ISO timestamp at script end
 >&2 echo "END: $(date -Iseconds)"
