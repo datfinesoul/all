@@ -71,15 +71,42 @@ elif [[ "$sed_command" == "gsed" ]]; then
   fi
 fi
 
-# Function to filter comments from JSON file
+# Function to filter comments from JSON file and extract PR description
 # Removes comments where author.login is "spacelift-io" or "github-actions"
+# Extracts only the meaningful description from PR template
 filter_bot_comments() {
   local input_file="$1"
   local output_file="$2"
 
-  jq 'if .comments then
-        .comments |= map(select(.author.login != "spacelift-io" and .author.login != "github-actions"))
-      else . end' "$input_file" > "$output_file"
+  jq '
+    # Filter bot comments
+    (if .comments then
+      .comments |= map(select(.author.login != "spacelift-io" and .author.login != "github-actions"))
+    else . end) |
+    
+    # Extract meaningful description from template
+    (if .body then
+      .body |= (. | 
+        # Normalize line endings
+        gsub("\r\n"; "\n") |
+        # Split into lines
+        split("\n") |
+        # Find start of description section (after first ####)
+        (. as $lines | 
+          (reduce range(0; length) as $i (null; 
+            if . == null and ($lines[$i] | test("^#### Document the change")) then $i else . end)) as $start |
+          # Find next #### header after description
+          (reduce range($start + 1; length) as $i (null;
+            if . == null and ($lines[$i] | test("^####")) then $i else . end)) as $end |
+          # Extract lines between headers, skip empty and template placeholders
+          if $start != null then
+            $lines[($start + 1):($end // length)] |
+            map(select(. != "" and (test("^>") | not))) |
+            join("\n")
+          else . end)
+      )
+    else . end)
+  ' "$input_file" > "$output_file"
 }
 
 # Process involved-prs for both users
