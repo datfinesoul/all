@@ -95,9 +95,9 @@ filter_bot_comments() {
         (. as $lines | 
           (reduce range(0; length) as $i (null; 
             if . == null and ($lines[$i] | test("^#### Document the change")) then $i else . end)) as $start |
-          # Find next #### header after description
+          # Find "What type of testing" header specifically
           (reduce range($start + 1; length) as $i (null;
-            if . == null and ($lines[$i] | test("^####")) then $i else . end)) as $end |
+            if . == null and ($lines[$i] | test("^#### What type of testing")) then $i else . end)) as $end |
           # Extract lines between headers, skip empty and template placeholders
           if $start != null then
             $lines[($start + 1):($end // length)] |
