@@ -7,6 +7,10 @@ IFS=$'\n\t'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 sed_command="${sed_command:-sed}"
 
+# Shared cache directories
+shared_cache_dir="$SCRIPT_DIR/outputs/.shared-cache"
+shared_transforms_cache="$shared_cache_dir/transforms"
+
 # Cleanup trap to remove temp files on exit
 cleanup() {
   true
@@ -230,12 +234,12 @@ process_user_issues() {
     return
   fi
 
-  mkdir -p "$output_dir"
+  mkdir -p "$output_dir" "$shared_transforms_cache"
 
   local file_count=0
   local skipped_count=0
   local generated_count=0
-  local total_files=$(find "$input_dir" -name "*.json" -type f | wc -l | tr -d ' ')
+  local total_files=$(find "$input_dir" -name "*.json" -type f -o -type l | wc -l | tr -d ' ')
 
   info "Processing $username involved-issues ($total_files files, using opencode for summaries)"
 
@@ -245,22 +249,35 @@ process_user_issues() {
     fi
 
     local filename="$(basename "$json_file" .json)"
+    local shared_output_file="$shared_transforms_cache/${filename}.md"
     local output_file="$output_dir/${filename}.md"
 
     ((file_count++))
     
-    # Skip if summary already exists
-    if [[ -f "$output_file" ]]; then
+    # Skip if symlink already exists in user directory
+    if [[ -L "$output_file" ]]; then
       ((skipped_count++))
       continue
     fi
     
-    debug "[$file_count/$total_files] Summarizing $filename"
-    
-    # Run opencode to summarize the issue
-    opencode run "summarize the $json_file file, add a footer about author, assignees, and overall work" > "$output_file" 2>&1
-    
-    ((generated_count++))
+    # Check if shared cache already has this summary
+    if [[ ! -f "$shared_output_file" ]]; then
+      debug "[$file_count/$total_files] Summarizing $filename"
+      
+      # Run opencode to summarize the issue and store in shared cache
+      opencode run "summarize the $json_file file, add a footer about author, assignees, and overall work" > "$shared_output_file" 2>&1
+      
+      ((generated_count++))
+    else
+      ((skipped_count++))
+    fi
+
+    # Create symlink from user directory to shared cache
+    # From: outputs/user/2025/transforms/involved-issues/file.md
+    # To: outputs/.shared-cache/transforms/file.md
+    # Relative path: ../../../../.shared-cache/transforms/file.md
+    relative_path="../../../../.shared-cache/transforms/${filename}.md"
+    ln -sf "$relative_path" "$output_file"
 
     # Progress update every 10 files
     if [[ $((file_count % 10)) -eq 0 ]]; then
