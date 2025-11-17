@@ -109,11 +109,32 @@ filter_bot_comments() {
   ' "$input_file" > "$output_file"
 }
 
+# Filter standup comments by user and mentions
+# Removes the issue body and keeps only comments by user or mentioning name
+filter_standup_comments() {
+  local input_file="$1"
+  local output_file="$2"
+  local username="$3"
+  local mention_name="$4"
+
+  jq --arg user "$username" --arg mention "$mention_name" '
+    # Remove the body field
+    .body = "" |
+    # Filter comments after body removal
+    if .comments then
+      .comments |= map(select(
+        .author.login == $user or 
+        (.body | ascii_downcase | contains($mention | ascii_downcase))
+      ))
+    else . end
+  ' "$input_file" > "$output_file"
+}
+
 # Process involved-prs for both users
 process_user_prs() {
   local username="$1"
   local input_dir="$SCRIPT_DIR/outputs/$username/2025/involved-prs"
-  local output_dir="$SCRIPT_DIR/transforms/$username/2025/involved-prs"
+  local output_dir="$SCRIPT_DIR/outputs/$username/2025/transforms/involved-prs"
 
   if [[ ! -d "$input_dir" ]]; then
     warn "Input directory does not exist: $input_dir"
@@ -149,13 +170,152 @@ process_user_prs() {
   pass "Processed $file_count files for $username"
 }
 
+# Process standup files for a user
+process_user_standup() {
+  local username="$1"
+  local mention_name="$2"
+  local input_dir="$SCRIPT_DIR/outputs/$username/2025/standup"
+  local output_dir="$SCRIPT_DIR/outputs/$username/2025/transforms/standup"
+
+  if [[ ! -d "$input_dir" ]]; then
+    warn "Input directory does not exist: $input_dir"
+    return
+  fi
+
+  mkdir -p "$output_dir"
+
+  local file_count=0
+  local kept_count=0
+  local total_files=$(find "$input_dir" -name "*.json" -type f | wc -l | tr -d ' ')
+
+  info "Processing $username standup ($total_files files, filtering for: $username or mentions of '$mention_name')"
+
+  for json_file in "$input_dir"/*.json; do
+    if [[ ! -f "$json_file" ]]; then
+      continue
+    fi
+
+    local filename="$(basename "$json_file")"
+    local output_file="$output_dir/$filename"
+
+    filter_standup_comments "$json_file" "$output_file" "$username" "$mention_name"
+
+    ((file_count++))
+
+    # Check if there are any comments left, remove file if empty
+    local comment_count=$(jq -r '.comments | length' "$output_file" 2>/dev/null || echo 0)
+    if [[ "$comment_count" -eq 0 ]]; then
+      rm "$output_file"
+    else
+      ((kept_count++))
+    fi
+
+    # Progress update every 25 files
+    if [[ $((file_count % 25)) -eq 0 ]]; then
+      info "Progress: $file_count/$total_files files processed"
+    fi
+  done
+
+  pass "Processed $file_count standup files for $username ($kept_count kept, $((file_count - kept_count)) removed)"
+}
+
+# Process involved-issues using opencode to summarize
+process_user_issues() {
+  local username="$1"
+  local input_dir="$SCRIPT_DIR/outputs/$username/2025/involved-issues"
+  local output_dir="$SCRIPT_DIR/outputs/$username/2025/transforms/involved-issues"
+
+  if [[ ! -d "$input_dir" ]]; then
+    warn "Input directory does not exist: $input_dir"
+    return
+  fi
+
+  mkdir -p "$output_dir"
+
+  local file_count=0
+  local skipped_count=0
+  local generated_count=0
+  local total_files=$(find "$input_dir" -name "*.json" -type f | wc -l | tr -d ' ')
+
+  info "Processing $username involved-issues ($total_files files, using opencode for summaries)"
+
+  for json_file in "$input_dir"/*.json; do
+    if [[ ! -f "$json_file" ]]; then
+      continue
+    fi
+
+    local filename="$(basename "$json_file" .json)"
+    local output_file="$output_dir/${filename}.md"
+
+    ((file_count++))
+    
+    # Skip if summary already exists
+    if [[ -f "$output_file" ]]; then
+      ((skipped_count++))
+      continue
+    fi
+    
+    debug "[$file_count/$total_files] Summarizing $filename"
+    
+    # Run opencode to summarize the issue
+    opencode run "summarize the $json_file file, add a footer about author, assignees, and overall work" > "$output_file" 2>&1
+    
+    ((generated_count++))
+
+    # Progress update every 10 files
+    if [[ $((file_count % 10)) -eq 0 ]]; then
+      info "Progress: $file_count/$total_files issues processed ($generated_count generated, $skipped_count skipped)"
+    fi
+  done
+
+  pass "Processed $file_count issue files for $username ($generated_count generated, $skipped_count skipped)"
+}
+
+# Parse command line arguments
+username=""
+mention_name=""
+while getopts "u:n:" opt; do
+  case $opt in
+    u) username="$OPTARG" ;;
+    n) mention_name="$OPTARG" ;;
+    *) 
+      fail "Usage: $0 -u username [-n mention_name]"
+      exit 1
+      ;;
+  esac
+done
+
+# Prompt for username if not provided
+if [[ -z "$username" ]]; then
+  >&2 echo -n "Enter username to process: "
+  read username
+  if [[ -z "$username" ]]; then
+    fail "Username is required"
+    exit 1
+  fi
+fi
+
+# Prompt for mention name if not provided
+if [[ -z "$mention_name" ]]; then
+  >&2 echo -n "Enter name to filter mentions (leave empty to skip standup processing): "
+  read mention_name
+fi
+
 # Main execution
-info "Starting bot comment filter transformation"
+info "Starting bot comment filter transformation for user: $username"
 
-process_user_prs "datfinesoul" || warn "Failed processing datfinesoul"
-process_user_prs "glg-satish-tripathi" || warn "Failed processing glg-satish-tripathi"
+process_user_prs "$username" || warn "Failed processing $username involved-prs"
 
-pass "Transformation complete"
+if [[ -n "$mention_name" ]]; then
+  info "Processing standup files with mention filter: $mention_name"
+  process_user_standup "$username" "$mention_name" || warn "Failed processing $username standup"
+else
+  info "Skipping standup processing"
+fi
+
+process_user_issues "$username" || warn "Failed processing $username involved-issues"
+
+pass "Transformation complete for $username"
 
 # Output ISO timestamp at script end
 >&2 echo "END: $(date -Iseconds)"
