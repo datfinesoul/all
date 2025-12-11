@@ -1,0 +1,29 @@
+services:
+  claude-code:
+    build:
+      context: .docker
+      dockerfile: Dockerfile
+      args:
+        TZ: America/Los_Angeles
+        CLAUDE_VERSION: latest
+    image: claude-code:local
+    container_name: claude-code
+    volumes:
+      # Mount git repo to workspace (read-write)
+      - .:/workspace:delegated
+      # Mount host OAuth credentials and session files (read-only)
+      - ~/.claude/.credentials.json:/home/node/.claude-host-credentials.json:ro
+      - ~/.claude.json:/home/node/.claude-host.json:ro
+      # Persist Claude config (container-only, not host ~/.claude)
+      - claude-config:/home/node/.claude
+      # Persist bash history
+      - claude-history:/commandhistory
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+
+volumes:
+  claude-config:
+    name: claude-code-config
+  claude-history:
+    name: claude-code-history

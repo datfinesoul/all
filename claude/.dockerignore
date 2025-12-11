@@ -1,0 +1,28 @@
+# Git
+.git
+.gitignore
+
+# Docker
+.docker
+docker-compose.yml
+.dockerignore
+
+# Node
+node_modules
+npm-debug.log
+
+# Build artifacts
+dist
+build
+
+# IDE
+.vscode
+.idea
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp files
+*.tmp
+*.log

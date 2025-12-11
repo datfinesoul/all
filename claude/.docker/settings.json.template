@@ -1,0 +1,16 @@
+{
+  "apiKeyHelper": "/home/node/.claude/api-key-helper.sh",
+  "env": {},
+  "permissions": {
+    "allow": [
+      "Bash(git diff:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)"
+    ],
+    "deny": [],
+    "ask": [
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
+    ]
+  }
+}
