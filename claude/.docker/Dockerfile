@@ -33,9 +33,10 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Install git-delta for better diffs
-RUN wget -q https://github.com/dandavison/delta/releases/download/${GIT_DELTA_VERSION}/git-delta_${GIT_DELTA_VERSION}_amd64.deb && \
-    dpkg -i git-delta_${GIT_DELTA_VERSION}_amd64.deb && \
-    rm git-delta_${GIT_DELTA_VERSION}_amd64.deb
+RUN ARCH=$(dpkg --print-architecture) && \
+    wget -q https://github.com/dandavison/delta/releases/download/${GIT_DELTA_VERSION}/git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb && \
+    dpkg -i git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb && \
+    rm git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb
 
 # Configure zsh with oh-my-zsh
 RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended && \
