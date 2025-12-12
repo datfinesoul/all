@@ -6,6 +6,11 @@ SECRETS_CREDENTIALS="/run/secrets/claude_credentials"
 SECRETS_SESSION="/run/secrets/claude_session"
 CLAUDE_ARGS=()
 
+# Use workspace-relative config directory if running as non-root
+if [ "$(id -u)" -ne 0 ]; then
+  export CLAUDE_CONFIG_DIR="/workspace/.claude"
+fi
+
 # Parse arguments
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -66,8 +71,12 @@ else
   exit 1
 fi
 
-# Fix ownership of config directory
-chown -R node:node "${CLAUDE_CONFIG_DIR}"
-
-# Execute Claude Code as node user with remaining arguments
-exec gosu node claude "${CLAUDE_ARGS[@]}"
+# Fix ownership of config directory (only if running as root)
+if [ "$(id -u)" -eq 0 ]; then
+  chown -R node:node "${CLAUDE_CONFIG_DIR}"
+  # Execute Claude Code as node user with remaining arguments
+  exec gosu node claude "${CLAUDE_ARGS[@]}"
+else
+  # Already running as non-root user, execute directly
+  exec claude "${CLAUDE_ARGS[@]}"
+fi

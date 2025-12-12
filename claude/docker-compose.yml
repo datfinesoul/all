@@ -7,6 +7,7 @@ services:
         CLAUDE_VERSION: latest
     image: claude-code:local
     container_name: claude-code
+    user: "${USER_ID:-1000}:${GROUP_ID:-1000}"
     environment:
       - TZ=${TZ:-UTC}
     secrets:

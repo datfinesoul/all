@@ -31,5 +31,9 @@ if [ -z "$TZ" ]; then
   fi
 fi
 
+# Export user/group IDs for docker-compose
+export USER_ID=$(id -u)
+export GROUP_ID=$(id -g)
+
 # Run container with docker-compose (use docker compose v2 syntax)
 docker compose run --rm claude-code "$@"
