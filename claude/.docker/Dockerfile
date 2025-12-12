@@ -1,6 +1,5 @@
 FROM node:20-bookworm
 
-ARG TZ=America/Los_Angeles
 ARG CLAUDE_VERSION=latest
 ARG GIT_DELTA_VERSION=0.18.2
 
@@ -8,7 +7,6 @@ ENV DEVCONTAINER=true \
     SHELL=/bin/zsh \
     EDITOR=nano \
     VISUAL=nano \
-    TZ=${TZ} \
     NPM_CONFIG_PREFIX=/usr/local/share/npm-global \
     PATH=/usr/local/share/npm-global/bin:$PATH \
     CLAUDE_CONFIG_DIR=/home/node/.claude
@@ -30,7 +28,8 @@ RUN apt-get update && \
     dnsutils \
     jq \
     nano \
-    vim && \
+    vim \
+    gosu && \
     rm -rf /var/lib/apt/lists/*
 
 # Install git-delta for better diffs
@@ -53,7 +52,6 @@ RUN mkdir -p /workspace /home/node/.claude && \
 RUN mkdir -p /usr/local/share/npm-global && \
     chown -R node:node /usr/local/share/npm-global
 
-USER node
 WORKDIR /workspace
 
 # Copy entrypoint script

@@ -11,5 +11,25 @@ if [ ! -f "$CREDENTIALS_FILE" ] && [ -z "$ANTHROPIC_API_KEY" ]; then
   exit 1
 fi
 
+# Auto-detect and export timezone if not set
+if [ -z "$TZ" ]; then
+  # Detect system timezone
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS
+    DETECTED_TZ=$(readlink /etc/localtime 2>/dev/null | sed 's#.*/zoneinfo/##')
+  else
+    # Linux
+    if command -v timedatectl >/dev/null 2>&1; then
+      DETECTED_TZ=$(timedatectl show -p Timezone --value 2>/dev/null)
+    else
+      DETECTED_TZ=$(readlink /etc/localtime 2>/dev/null | sed 's#.*/zoneinfo/##')
+    fi
+  fi
+
+  if [ -n "$DETECTED_TZ" ]; then
+    export TZ=$DETECTED_TZ
+  fi
+fi
+
 # Run container with docker-compose (use docker compose v2 syntax)
 docker compose run --rm claude-code "$@"

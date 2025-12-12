@@ -2,7 +2,8 @@
 set -euo pipefail
 
 API_KEY="${ANTHROPIC_API_KEY:-}"
-HOST_CREDENTIALS_FILE="/home/node/.claude-host-credentials.json"
+SECRETS_CREDENTIALS="/run/secrets/claude_credentials"
+SECRETS_SESSION="/run/secrets/claude_session"
 CLAUDE_ARGS=()
 
 # Parse arguments
@@ -22,16 +23,16 @@ done
 # Setup config directory
 mkdir -p "${CLAUDE_CONFIG_DIR}"
 
-# Copy credentials and session files if mounted from host
-if [ -f "$HOST_CREDENTIALS_FILE" ]; then
-  echo "Copying credentials from host to ${CLAUDE_CONFIG_DIR}/.credentials.json"
-  cp "$HOST_CREDENTIALS_FILE" "${CLAUDE_CONFIG_DIR}/.credentials.json"
+# Setup credentials from Docker secrets
+if [ -f "$SECRETS_CREDENTIALS" ]; then
+  echo "Copying credentials from secret to ${CLAUDE_CONFIG_DIR}/.credentials.json"
+  cp "$SECRETS_CREDENTIALS" "${CLAUDE_CONFIG_DIR}/.credentials.json"
   chmod 600 "${CLAUDE_CONFIG_DIR}/.credentials.json"
 
-  # Copy session metadata file
-  if [ -f "/home/node/.claude-host.json" ]; then
-    echo "Copying session metadata to ${CLAUDE_CONFIG_DIR}/.claude.json"
-    cp "/home/node/.claude-host.json" "${CLAUDE_CONFIG_DIR}/.claude.json"
+  # Copy session metadata if provided
+  if [ -f "$SECRETS_SESSION" ]; then
+    echo "Copying session metadata from secret to ${CLAUDE_CONFIG_DIR}/.claude.json"
+    cp "$SECRETS_SESSION" "${CLAUDE_CONFIG_DIR}/.claude.json"
     chmod 600 "${CLAUDE_CONFIG_DIR}/.claude.json"
   fi
 elif [ -n "$API_KEY" ]; then
@@ -59,11 +60,14 @@ else
   # No authentication available
   echo "Error: No authentication credentials available."
   echo "Either:"
-  echo "  1. Mount ~/.claude/.credentials.json (currently not found at ${HOST_CREDENTIALS_FILE})"
+  echo "  1. Ensure ~/.claude/.credentials.json exists (mounted as Docker secret)"
   echo "  2. Set ANTHROPIC_API_KEY environment variable"
   echo "  3. Use --api-key argument"
   exit 1
 fi
 
-# Execute Claude Code with remaining arguments
-exec claude "${CLAUDE_ARGS[@]}"
+# Fix ownership of config directory
+chown -R node:node "${CLAUDE_CONFIG_DIR}"
+
+# Execute Claude Code as node user with remaining arguments
+exec gosu node claude "${CLAUDE_ARGS[@]}"
